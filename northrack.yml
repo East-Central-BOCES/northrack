@@ -19,4 +19,4 @@
       ansible.posix.authorized_key:
         user: ovirtgluster
         state: present
-        key: ""
+        key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCf7blqhy4V4ftVyFUMIulWNmJzb88HWdsb/msGJQ8ZGc+HWVetpZH0hJouxOuiO6WMVy2RSoCxMgQGzVAlLiTsK5TChmT4CMQhW2JC51sIN7fCfA+bOW1JzRo0xbDWlIuauQ5xvlLXZanRVqfcD7R/Ebp3cduxoNq3Z6wLnDDa64OyPIIZYvC8q+edhJl4CTJBmGr6WoheS0e0Mv/FosdmcobW+F5eDhJ6uNu2fipZ6inGTnRcJDa5ubRf18pluyBQdbZnwwq+iCqNgzuBm4DmcESNkGX2iAKIWjecXNIoRXvJoeHH1tdldP7k08eQd3u0+Oi0gJ3iml7K8+aivqutuHoYHdWzZaeBeu623z1zgww0Zh83UgW3ChY6FrUPeaTJRAYsOMcvBoxUCNHANuF+WCf9yuxF4nkWopbnSY4fqMg1iVGSSTafVk9rAIR3FsmHbKJ5Dh4Eark3FImuR1OxrPXSBOLl+9iPyzp4bLzyQBeobSphauckE2Cqke/MMX0= ovirtgluster@north36.maas"
