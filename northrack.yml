@@ -10,3 +10,13 @@
           - cockpit-ovirt-dashboard
           - vdsm-gluster
           - ovirt-host
+    - name: Add ovirtglusteradmin
+      ansible.builtin.user:
+        name: ovirtgluster
+        comment: oVirt Gluster
+        group: root
+    - name: oVirtgluster Key
+      ansible.posix.authorized_key:
+        user: ovirtgluster
+        state: present
+        key: ""
