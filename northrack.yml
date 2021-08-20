@@ -10,6 +10,7 @@
           - cockpit-ovirt-dashboard
           - vdsm-gluster
           - ovirt-host
+          - gluster-ansible-roles
     - name: Add ovirtglusteradmin
       ansible.builtin.user:
         name: ovirtgluster
