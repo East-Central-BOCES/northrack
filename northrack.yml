@@ -16,7 +16,12 @@
         name: ovirtgluster
         comment: oVirt Gluster
         group: root
-    - name: oVirtgluster Key
+    - name: Enable Root Login
+      ansible.builtin.lineinfile:
+        path: /root/.ssh/authorized_keys
+        state: absent
+        regexp: '^no-port-forwarding,no-agent-forwarding,no-X11-forwarding,command="echo '
+    - name: Root Key
       ansible.posix.authorized_key:
         user: root
         state: present
