@@ -25,7 +25,7 @@
       ansible.posix.authorized_key:
         user: root
         state: present
-        key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCf7blqhy4V4ftVyFUMIulWNmJzb88HWdsb/msGJQ8ZGc+HWVetpZH0hJouxOuiO6WMVy2RSoCxMgQGzVAlLiTsK5TChmT4CMQhW2JC51sIN7fCfA+bOW1JzRo0xbDWlIuauQ5xvlLXZanRVqfcD7R/Ebp3cduxoNq3Z6wLnDDa64OyPIIZYvC8q+edhJl4CTJBmGr6WoheS0e0Mv/FosdmcobW+F5eDhJ6uNu2fipZ6inGTnRcJDa5ubRf18pluyBQdbZnwwq+iCqNgzuBm4DmcESNkGX2iAKIWjecXNIoRXvJoeHH1tdldP7k08eQd3u0+Oi0gJ3iml7K8+aivqutuHoYHdWzZaeBeu623z1zgww0Zh83UgW3ChY6FrUPeaTJRAYsOMcvBoxUCNHANuF+WCf9yuxF4nkWopbnSY4fqMg1iVGSSTafVk9rAIR3FsmHbKJ5Dh4Eark3FImuR1OxrPXSBOLl+9iPyzp4bLzyQBeobSphauckE2Cqke/MMX0= root@north36.maas"
+        key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCqgwlm+y7J8pizlQEsFGP4BO/xWOCDsBwC3HPWM9wbWQey9TIiUSEJbx+uHiihdgQB2f2ClJU5DcOTYtYcQo2s5zS9xl2ZCC2egtRd+ub/EGQipugmdQKWGe2S+JTY3UCuV1Bhmd+Eggo/7mn6/ajgL1bRG2KiDwF+sif/j7qR2CDncGDtZOr5ecoc9hPU6+E826L0edBff8gytFhFCprsSsR2iGstJkQ0hr9Ma3lSiQj65QTZJEhTaKhWqLaZ+gazX/T37JsOvGnnhpOoS/t2nZ0Qi2GpDtLl3sLmvH20Xbm1ge6sOZDtRqD/UEdUoXpl/N76w5z0JZlcFjN/d88nYB6YKT+AZ+P42bFsEVw00cyJ4j8kLfin9Gsqp+BSiVl+JXkAWovoz+9++nMSAI3hNn3J6SC4Wr30pe8cotfPmlQf9BDtHNFRlGjYJHIW1IWApDg+0Xojz2VZmlkrNX39tsrAT3Z+e+hppMIYZGn507nOKZuKTdx4bZJJKbpf8LUtkhgyI178TfersvaH5Gcd49aygnJAlEVmtg8pG0irfW2m+EsotcFCmtd+ywtJEUIVoilujy0Xx+/Evh6jwHwfbyvnivh+OWZxOkcjYBVJevl3FxGDz/KgaZYgOkMWmL9VFWLttEossbiVm6zYzOCocpd5wpr6sA2jdPCY6EQ8ow== root@northrack"
     - name: Enable oVirtGluster User passwordless sudo
       ansible.builtin.lineinfile:
         path: /etc/sudoers.d/boces-init-users
