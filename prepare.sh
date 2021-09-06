@@ -1,4 +1,5 @@
 #!/bin/sh
+mkdir /etc/local
 mkdir /etc/local/runonce.d
 mkdir /etc/local/runonce.d/ran
 mv /prov/northrack/runonce.sh /usr/local/bin/runonce.sh
