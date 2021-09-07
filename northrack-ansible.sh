@@ -1,2 +1,2 @@
 #!/bin/sh
-ansible-playbook /prov/northrack/northrack.yaml
+ansible-playbook /prov/northrack/northrack.yml
