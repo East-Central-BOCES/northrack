@@ -3,7 +3,7 @@
   tasks:
     - name: install cockpit
       become: true
-      becomd_user: root
+      become_user: root
       dnf:
         state: present
         name:
