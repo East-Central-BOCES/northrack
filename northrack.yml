@@ -2,9 +2,9 @@
 - hosts: localhost
   tasks:
     - name: install cockpit
-      become: true
-      become_user: root
-      dnf:
+      # become: true
+      # become_user: root
+      ansible.builtin.dnf:
         state: present
         name:
           - cockpit
