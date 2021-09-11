@@ -1,29 +1,21 @@
 ---
 - hosts: localhost
   tasks:
-    - name: install cockpit
-      # become: true
-      # become_user: root
-      ansible.builtin.dnf:
-        state: present
-        name:
-          - cockpit
     - name: enable cockpit service
       ansible.builtin.systemd:
         name: cockpit.socket
         enabled: yes
         state: started
-#    - name: install packages
-#      become: true
-#      become_user: root
-#      dnf:
-#        state: present
-#        name:
-#          - cockpit
-#          - cockpit-ovirt-dashboard
-#          - vdsm-gluster
-#          - ovirt-host
-#          - gluster-ansible-roles
+    - name: install packages
+      become: true
+      become_user: root
+      dnf:
+        state: present
+        name:
+          - cockpit-ovirt-dashboard
+          - vdsm-gluster
+          - ovirt-host
+          - gluster-ansible-roles
     - name: Add ovirtglusteradmin
       ansible.builtin.user:
         name: ovirtgluster
