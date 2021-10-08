@@ -12,6 +12,8 @@
       dnf:
         state: present
         name:
+          - ovirt-hosted-engine-setup
+          - sanlock
           - cockpit-ovirt-dashboard
           - vdsm-gluster
           - ovirt-host
