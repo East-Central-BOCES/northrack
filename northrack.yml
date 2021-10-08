@@ -38,3 +38,15 @@
         path: /etc/sudoers.d/boces-init-users
         regexp: '^ovirtgluster'
         line: ovirtgluster ALL=(ALL) NOPASSWD:ALL
+    - name: verify package installs
+      # become: true
+      # become_user: root
+      dnf:
+        state: present
+        name:
+          - ovirt-hosted-engine-setup
+          - sanlock
+          - cockpit-ovirt-dashboard
+          - vdsm-gluster
+          - ovirt-host
+          - gluster-ansible-roles
