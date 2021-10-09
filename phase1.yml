@@ -18,6 +18,11 @@
         path: /etc/yum.repos.d/Rocky-PowerTools.repo
         regexp: 'enabled=0'
         line: enabled=1
+   - name: install glusterfs
+      dnf:
+        state: present
+        name:
+          - glusterfs-server
     - name: Enable Root Login
       ansible.builtin.lineinfile:
         path: /root/.ssh/authorized_keys
