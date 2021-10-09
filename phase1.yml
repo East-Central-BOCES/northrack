@@ -1,0 +1,30 @@
+---
+- hosts: localhost
+  tasks:
+    - name: enable cockpit service
+      ansible.builtin.systemd:
+        name: cockpit.socket
+        enabled: yes
+        state: started
+    - name: install packages
+      # become: true
+      # become_user: root
+      dnf:
+        state: present
+        name:
+          - centos-release-gluster8
+    - name: enable powertools repo
+      ansible.builtin.lineinfile:
+        path: /etc/yum.repos.d/Rocky-PowerTools.repo
+        regexp: 'enabled=0'
+        line: enabled=1
+    - name: Enable Root Login
+      ansible.builtin.lineinfile:
+        path: /root/.ssh/authorized_keys
+        state: absent
+        regexp: '^no-port-forwarding,no-agent-forwarding,no-X11-forwarding,command="echo '
+    - name: Root Key
+      ansible.posix.authorized_key:
+        user: root
+        state: present
+        key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCqgwlm+y7J8pizlQEsFGP4BO/xWOCDsBwC3HPWM9wbWQey9TIiUSEJbx+uHiihdgQB2f2ClJU5DcOTYtYcQo2s5zS9xl2ZCC2egtRd+ub/EGQipugmdQKWGe2S+JTY3UCuV1Bhmd+Eggo/7mn6/ajgL1bRG2KiDwF+sif/j7qR2CDncGDtZOr5ecoc9hPU6+E826L0edBff8gytFhFCprsSsR2iGstJkQ0hr9Ma3lSiQj65QTZJEhTaKhWqLaZ+gazX/T37JsOvGnnhpOoS/t2nZ0Qi2GpDtLl3sLmvH20Xbm1ge6sOZDtRqD/UEdUoXpl/N76w5z0JZlcFjN/d88nYB6YKT+AZ+P42bFsEVw00cyJ4j8kLfin9Gsqp+BSiVl+JXkAWovoz+9++nMSAI3hNn3J6SC4Wr30pe8cotfPmlQf9BDtHNFRlGjYJHIW1IWApDg+0Xojz2VZmlkrNX39tsrAT3Z+e+hppMIYZGn507nOKZuKTdx4bZJJKbpf8LUtkhgyI178TfersvaH5Gcd49aygnJAlEVmtg8pG0irfW2m+EsotcFCmtd+ywtJEUIVoilujy0Xx+/Evh6jwHwfbyvnivh+OWZxOkcjYBVJevl3FxGDz/KgaZYgOkMWmL9VFWLttEossbiVm6zYzOCocpd5wpr6sA2jdPCY6EQ8ow== root@northrack"
