@@ -22,7 +22,7 @@
         state: present
         name:
           - glusterfs-server
-      becom: true
+      become: true
     - name: Enable Root Login
       ansible.builtin.lineinfile:
         path: /root/.ssh/authorized_keys
