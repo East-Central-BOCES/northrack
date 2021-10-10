@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 logger -n 10.10.10.10 "Launching pausenreboot.sh"
 mv /prov/northrack/phase1.sh /etc/local/runonce.d/phase1.sh
 chmod +x /etc/local/runonce.d/phase1.sh
