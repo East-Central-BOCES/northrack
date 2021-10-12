@@ -9,5 +9,7 @@ sleep 30
   dnf -y install ovirt-host
   dnf -y install gluster-ansible-roles
   ansible-playbook /prov/northrack/northrack.yml
+#  firewall-cmd --add-service=glusterfs --permanent
+#  firewall-cmd --reload
 } >> /etc/local/runonce.d/ran/northrack.log 2>&1
 shutdown -r now
