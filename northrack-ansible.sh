@@ -11,5 +11,14 @@ sleep 30
   ansible-playbook /prov/northrack/northrack.yml
   firewall-cmd --add-service=glusterfs --permanent
   firewall-cmd --reload
+  mkdir /clusterstorage
+  mkdir /clusterstorage/engine
+  mkdir /clusterstorage/isostore
+  mkdir /clusterstorage/hddstore
+  mkdir /clusterstorage/ssdstore
+  mkdir /storage/sdb1/engine
+  mkdir /storage/sdb1/isostore
+  mkdir /storage/sdb1/hddstore
+  mkdir /storage/sdc1/ssdstore
 } >> /etc/local/runonce.d/ran/northrack.log 2>&1
 shutdown -r now
