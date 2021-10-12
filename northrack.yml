@@ -33,8 +33,3 @@
         path: /etc/sudoers.d/boces-init-users
         regexp: '^ovirtgluster'
         line: ovirtgluster ALL=(ALL) NOPASSWD:ALL
-    - name: disable firewall
-      ansible.builtin.systemd:
-        name: firewalld
-        state: stopped
-        enabled: no
