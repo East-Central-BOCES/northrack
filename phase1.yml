@@ -33,3 +33,8 @@
         user: root
         state: present
         key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCqgwlm+y7J8pizlQEsFGP4BO/xWOCDsBwC3HPWM9wbWQey9TIiUSEJbx+uHiihdgQB2f2ClJU5DcOTYtYcQo2s5zS9xl2ZCC2egtRd+ub/EGQipugmdQKWGe2S+JTY3UCuV1Bhmd+Eggo/7mn6/ajgL1bRG2KiDwF+sif/j7qR2CDncGDtZOr5ecoc9hPU6+E826L0edBff8gytFhFCprsSsR2iGstJkQ0hr9Ma3lSiQj65QTZJEhTaKhWqLaZ+gazX/T37JsOvGnnhpOoS/t2nZ0Qi2GpDtLl3sLmvH20Xbm1ge6sOZDtRqD/UEdUoXpl/N76w5z0JZlcFjN/d88nYB6YKT+AZ+P42bFsEVw00cyJ4j8kLfin9Gsqp+BSiVl+JXkAWovoz+9++nMSAI3hNn3J6SC4Wr30pe8cotfPmlQf9BDtHNFRlGjYJHIW1IWApDg+0Xojz2VZmlkrNX39tsrAT3Z+e+hppMIYZGn507nOKZuKTdx4bZJJKbpf8LUtkhgyI178TfersvaH5Gcd49aygnJAlEVmtg8pG0irfW2m+EsotcFCmtd+ywtJEUIVoilujy0Xx+/Evh6jwHwfbyvnivh+OWZxOkcjYBVJevl3FxGDz/KgaZYgOkMWmL9VFWLttEossbiVm6zYzOCocpd5wpr6sA2jdPCY6EQ8ow== root@northrack"
+    - name: oVirt Engine Key
+      ansible.posix.authorized_key:
+        user: root
+        state: present
+        key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDcMPD8SYc79FEQRppETGDViO7I0xaaBE3ydwW0bwn7zRSJ5A+9mXqzy+ZN1Vw6s9iedWGSnzKuau6lHd+Ax+msMZYqyRaGp0jvzsNjhYXrPjSPfKzG3P8jPOw7xNYkyqgYU/4GspHrKmtFbocpvSWzKR74aW+e9lmNRq0aei/NNIjXVLcwW4hqg3qKFL2/N7Y1qJNH21GBw/xSJwL0kS2dpAu6o9+7Ax+Z4Gsi4BznrBe4lsJKry8eVLn+tbGZjulKxR9PI3v+fF+9/FjYillbCV+uarvDiehpyxjb6ofFNsVHOvznG8pmLOH/BrD4uTcSRInsz2vipppra39ynwy9 ovirt-engine"
