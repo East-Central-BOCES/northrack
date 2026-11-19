@@ -5,6 +5,41 @@ Target: Rocky Linux 9.9 x86_64 hosts with **Gluster and oVirt**. Continue using
 the updates to this repository. This plan and the package probe are the first
 stage. The existing scripts are still the historical Rocky 8 implementation.
 
+Implementation now follows the [approved north31 lab and acceptance gates](../lab/README.md).
+The selected topology is three full replicas and an independent test Engine.
+The final physical test includes rebuilding north31's two approved data disks
+as XFS and leaving the host on Rocky 9.9. The broken `vscg` VM has no service
+availability requirement. Reimaging remains gated on successful lab acceptance
+and verified off-host recovery material.
+
+## Execution record — 2026-11-19
+
+- North31's missing VM utilities were installed using a separate apt metadata
+  cache because an unrelated `apt-get update` had held the default cache lock
+  for ten days. That process and the host's apt source files were left intact.
+- The official Rocky 9.9 minimal ISO passed SHA-256 verification:
+  `56772c6c07464ea8e55b64cb5ec2448d16e1b4673b8041678dacfd540131401c`.
+- `nr99-node1` and `nr99-engine` installed and booted Rocky 9.9 with SELinux
+  enforcing. The installer-media package list was corrected to exclude Git,
+  which is not available on the minimal ISO. First-attempt logs are retained.
+- The guest's VLAN initially remained at MTU 1500. Explicitly configuring the
+  parent and VLAN to 9000 and disabling parent DHCP corrected it; future lab
+  Kickstarts explicitly configure the parent.
+- Gate 1 passed: all **1,013 host RPMs** and **1,019 Engine RPMs** have valid
+  signatures. Ceph Pacific packages are signed with the published CentOS
+  Storage SIG key; enabling repository GPG checking works without a signature
+  bypass. Only keys referenced by enabled repositories are imported.
+- Accepted manifests include RPM and publisher-key file hashes. Host manifest:
+  `69bcb2f87f39aacd2006125ed1745c25acff2c523cbba17143b1b6b312949d60`;
+  Engine manifest:
+  `14f40ea152d306edb08314fcb67d265d245ddd6db13da582159c717bd3df2a4f`.
+  Full manifests are committed under `evidence/rocky99`; bulk RPMs and logs are
+  retained outside Git in the MAAS workspace and acceptance VMs.
+- Powered-off `before-provisioning` checkpoints were taken for both acceptance
+  VMs, including node1's blank data disks. No physical disk has been rebuilt.
+- Provisioning, integration, recovery, MAAS deployment, and bare-metal acceptance
+  remain in progress or pending; the historical scripts are not promoted.
+
 ## Baseline and deployment boundary
 
 The reviewed legacy revision is `9f20bea6c120d69f1df190cc30749705320cf4d9`.

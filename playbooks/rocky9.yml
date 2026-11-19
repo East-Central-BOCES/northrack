@@ -1,0 +1,169 @@
+---
+- name: Provision accepted Rocky 9.9 host or independent Engine
+  hosts: localhost
+  become: true
+  gather_facts: true
+  vars:
+    nr: "{{ lookup('file', config_path) | from_json }}"
+    host_packages:
+      - cockpit
+      - cockpit-ovirt-dashboard
+      - firewalld
+      - glusterfs-server
+      - glusterfs-fuse
+      - glusterfs-selinux
+      - gluster-ansible-roles
+      - ovirt-host
+      - ovirt-hosted-engine-setup
+      - sanlock
+      - vdsm-gluster
+      - policycoreutils-python-utils
+  tasks:
+    - name: Require the accepted OS and role
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Rocky'
+          - ansible_distribution_version == '9.9'
+          - nr.role in ['host', 'engine']
+          - ansible_architecture == 'x86_64'
+
+    - name: Install workload from the verified package repository only
+      ansible.builtin.dnf:
+        name: "{{ host_packages if nr.role == 'host' else ['ovirt-engine', 'firewalld'] }}"
+        state: present
+        disablerepo: '*'
+        enablerepo: northrack-accepted
+        install_weak_deps: false
+        disable_gpg_check: false
+
+    - name: Keep enforcing SELinux
+      ansible.posix.selinux:
+        policy: targeted
+        state: enforcing
+
+    - name: Prepare only preflighted data disks
+      ansible.builtin.command:
+        argv: "{{ ['python3', repo_root + '/tools/storage.py', config_path, '--apply'] + (['--format-data-disks'] if (format_data_disks | bool) else []) }}"
+      register: nr_storage
+      changed_when: (nr_storage.stdout | from_json).changed
+      when: not ansible_check_mode
+
+    - name: Mount XFS data filesystems by UUID
+      ansible.posix.mount:
+        path: "{{ item.mount }}"
+        src: "UUID={{ item.uuid }}"
+        fstype: xfs
+        opts: defaults,noatime
+        state: mounted
+      loop: "{{ (nr_storage.stdout | default('{\"disks\": []}') | from_json).disks }}"
+
+    - name: Read local SELinux path rules
+      ansible.builtin.command: semanage fcontext -l -C
+      register: nr_contexts
+      changed_when: false
+      when: nr.role == 'host' and not ansible_check_mode
+
+    - name: Persist the brick SELinux context
+      ansible.builtin.command:
+        argv: [semanage, fcontext, -a, -t, glusterd_brick_t, "{{ item.mount }}/brick(/.*)?"]
+      loop: "{{ (nr_storage.stdout | default('{\"disks\": []}') | from_json).disks }}"
+      when: nr.role == 'host' and (item.mount + '/brick(/.*)?') not in (nr_contexts.stdout | default('')) and not ansible_check_mode
+
+    - name: Create brick subdirectories beneath mounted filesystems
+      ansible.builtin.file:
+        path: "{{ item.mount }}/brick"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+        setype: glusterd_brick_t
+      loop: "{{ (nr_storage.stdout | default('{\"disks\": []}') | from_json).disks }}"
+
+    - name: Start firewall and time synchronization
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: [firewalld, chronyd]
+
+    - name: Create the dedicated storage zone
+      ansible.posix.firewalld:
+        zone: storage
+        state: present
+        permanent: true
+      register: nr_zone
+      when: nr.role == 'host'
+
+    - name: Load a newly created zone
+      ansible.builtin.command: firewall-cmd --reload
+      when: nr.role == 'host' and nr_zone.changed and not ansible_check_mode
+
+    - name: Allow Gluster only in the storage zone
+      ansible.posix.firewalld:
+        zone: "{{ item.zone }}"
+        service: glusterfs
+        state: "{{ item.state }}"
+        permanent: true
+        immediate: true
+      loop:
+        - {zone: storage, state: enabled}
+        - {zone: public, state: disabled}
+      when: nr.role == 'host'
+
+    - name: Read the storage connection zone
+      ansible.builtin.command:
+        argv: [nmcli, -g, connection.zone, connection, show, "{{ nr.storage_interface }}"]
+      register: nr_nm_zone
+      changed_when: false
+      when: nr.role == 'host'
+
+    - name: Persist the storage zone in NetworkManager
+      ansible.builtin.command:
+        argv: [nmcli, connection, modify, "{{ nr.storage_interface }}", connection.zone, storage]
+      when: nr.role == 'host' and nr_nm_zone.stdout != 'storage'
+
+    - name: Apply the storage interface zone immediately
+      ansible.posix.firewalld:
+        zone: storage
+        interface: "{{ nr.storage_interface }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      when: nr.role == 'host'
+
+    - name: Allow Cockpit on management networks
+      ansible.posix.firewalld:
+        zone: public
+        service: cockpit
+        state: enabled
+        permanent: true
+        immediate: true
+      when: nr.role == 'host'
+
+    - name: Start host services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: [glusterd, cockpit.socket]
+      when: nr.role == 'host'
+
+    - name: Validate SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Create provisioning state directory
+      ansible.builtin.file:
+        path: /var/lib/northrack
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Record success only after all required steps pass
+      ansible.builtin.copy:
+        dest: /var/lib/northrack/provisioned.json
+        owner: root
+        group: root
+        mode: '0644'
+        content: "{{ {'role': nr.role, 'configuration': nr, 'rpm_manifest_sha256': rpm_manifest_sha256} | to_nice_json }}\n"
