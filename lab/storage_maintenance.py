@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import time
+import ovirtsdk4.types as types
 from engine_api import connect
 
 
@@ -42,7 +43,11 @@ def main():
                 storage.activate()
                 wait(storage.get, 'active')
             if vm.get().status.value == 'down':
-                vm.start()
+                host = system.hosts_service().list(search='name=nr99-node1')[0]
+                if host.status.value != 'up':
+                    raise RuntimeError('The unaffected test host must be up before workload restart')
+                vm.start(vm=types.Vm(placement_policy=types.VmPlacementPolicy(
+                    affinity=types.VmAffinity.MIGRATABLE, hosts=[types.Host(id=host.id)])))
                 wait(vm.get, 'up')
         print(json.dumps({'action': args.action, 'vm': vm.get().status.value,
                           'storage': storage.get().status.value}))

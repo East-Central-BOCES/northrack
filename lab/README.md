@@ -108,6 +108,11 @@ login is `admin@ovirt@internalsso` for the packaged Keycloak configuration.
 | `nested_vm.py create/start/status/migrate` | Upload through verified TLS, create one disposable workload, and boot/migrate it between named lab hosts. |
 | `guest_io.py prepare/verify/stop` | Inside the nested guest, retain a 16 MiB payload checksum and boot ID while running a bounded fsync journal. |
 | `recovery.py --known-hosts FILE` | From the operator's Mac, inject virtual node power loss and isolated storage NIC partitions, restore faults, and verify all replicas and healing. |
+| `check_replicas.py --known-hosts FILE` | Compare file contents and disk shards on all three replicas with the workload and storage domain quiescent. |
+| `repair_shd.py` | Explicitly recover shared or per-volume heal daemons on a named lab replica and verify that brick processes did not change. This is manual recovery, not an acceptance pass. |
+| `storage_maintenance.py quiesce/activate` | Gracefully stop the disposable workload and deactivate its data domain, or reactivate the domain and boot the workload. |
+| `probe_portmap.py` | On node1, read the six published brick ports through Gluster's XDR RPC protocol. |
+| `shd_state.py` | On a lab replica, request diagnostic statedumps and report only the six active heal-client connection flags. |
 | `dhcp_dns_probe.py` | On north31, use one temporary macvlan namespace to obtain a fresh MAAS lease and verify its hostname through authoritative DNS; release the lease and remove the namespace. |
 
 Keep the verified operator `known_hosts` file outside Git. The operator public

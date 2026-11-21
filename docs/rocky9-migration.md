@@ -62,9 +62,7 @@ and verified off-host recovery material.
   execute successfully in native tests; this warning remains recorded and is
   not suppressed. The branch is not promoted into the production deployment path.
 
-## Baseline and deployment boundary
-
-### Recovery investigation — 2026-11-20
+## Recovery investigation — 2026-11-20
 
 The interrupted recovery observation eventually timed out after 15 minutes.
 All injected links were restored. On resumption, all Engine hosts and the nested
@@ -82,7 +80,10 @@ The disposable VM was gracefully shut down, its data domain put in maintenance,
 and the standalone I/O mount released. Full heals succeeded with the workload
 quiescent. All 40 file/shard paths then matched across all three replicas;
 both volumes reported zero pending entries and the data volume zero split-brain.
-The domain and VM are being reactivated with fresh clients for another test.
+The domain and VM were reactivated with fresh clients. The VM started on node3
+and then successfully live-migrated back to node1. Its original payload checksum
+still matched after this planned maintenance boot. Another partition test is
+ran from this recovered state.
 This manual recovery does not establish automatic partition recovery acceptance.
 
 `recovery.py` now requires successful heal triggers as well as connected bricks,
@@ -90,6 +91,42 @@ zero pending heals and zero split-brain. Its final error distinguishes readiness
 failure from an actual split-brain report. `check_replicas.py` compares quiescent
 file/shard contents; `repair_shd.py` is an explicit lab repair, never an automatic
 step hidden inside the acceptance test.
+
+The fresh-client repeat passed baseline checksums on all three replicas and
+accepted a 16 MiB fsynced write with node3's storage link down. After link
+restoration it failed the full 900-second healing-readiness window again.
+Quorum-loss testing was not attempted. Diagnostic dumps on all three nodes
+showed both heal clients for node3 disconnected, while the other four clients
+remained connected. The portmapper correctly published node3's new data/I/O
+ports 57368/55205; both listeners were reachable over storage, jumbo pings
+passed, and management-side access remained blocked. Both volumes reported
+zero split-brain entries. This establishes a reproducible client-reconnection
+problem; it does not establish the underlying code defect or a production fix.
+
+The configured stable CentOS SIG EL9 Gluster 11 repository still offers only
+11.0 and the installed 11.1-1.el9s. Upstream has an
+[11.2 release](https://github.com/gluster/glusterfs/releases/tag/v11.2), but it is
+not an accepted EL9 package candidate and was not installed or assumed to fix
+this failure. Both quorum policies, SELinux, and the storage firewall remain in
+place. Explicit quiescent recovery after this failed test preserved every brick
+process, restored all six heal-client connections on each node, and passed
+heal readiness. All 42 file/shard paths matched across the three replicas with
+zero pending heals and zero split-brain. All three host health checks passed.
+The verified storage domain is active again, all three Engine hosts are up,
+and the disposable workload is running on node1 with its original payload
+checksum intact. The final native provisioning rerun completed with 25 tasks
+OK, zero changes and zero failures; all 19 unit tests pass. Automatic partition
+recovery remains failed and deployment remains gated. The concise machine-readable
+record is [recovery-2026-11-20.json](../evidence/rocky99/recovery-2026-11-20.json).
+
+Full diagnostic logs are retained outside Git under
+`artifacts/northrack/implementation` in the MAAS workspace. Read-only protocol
+diagnostics are implemented in `probe_portmap.py`; `shd_state.py` extracts only
+active connection flags from self-heal statedumps. Publisher protocol sources:
+[portmap XDR](https://github.com/gluster/glusterfs/blob/v11.1/rpc/xdr/src/portmap-xdr.x)
+and [RPC identifiers](https://github.com/gluster/glusterfs/blob/v11.1/rpc/rpc-lib/src/protocol-common.h).
+
+## Baseline and deployment boundary
 
 The reviewed legacy revision is `9f20bea6c120d69f1df190cc30749705320cf4d9`.
 The production MAAS preseed `curtin_userdata_centos` contains commented commands
