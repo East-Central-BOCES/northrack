@@ -1,0 +1,26 @@
+---
+# Installed on the independent lab Engine, using oVirt's documented site hook.
+- name: Preserve the nr99 storage firewall boundary after host deployment
+  when: host_deploy_cluster_name | default('') == 'nr99'
+  block:
+    - name: Require the provisioned storage VLAN before restricting services
+      ansible.builtin.command: firewall-cmd --get-zone-of-interface=storage106
+      register: nr_storage_zone
+      changed_when: false
+      failed_when: nr_storage_zone.rc != 0 or nr_storage_zone.stdout != 'storage'
+
+    - name: Keep Gluster available on its storage network
+      firewalld:
+        zone: storage
+        service: glusterfs
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Remove the public Gluster service added by vendor host deployment
+      firewalld:
+        zone: public
+        service: glusterfs
+        permanent: true
+        immediate: true
+        state: disabled

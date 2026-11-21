@@ -1,0 +1,10 @@
+{
+  "role": "host",
+  "storage_interface": "storage106",
+  "storage_parent": "eth1",
+  "allow_format": true,
+  "disks": [
+    {"by_id": "/dev/disk/by-id/virtio-nr99-node3-data01", "mount": "/storage/sdb1"},
+    {"by_id": "/dev/disk/by-id/virtio-nr99-node3-data02", "mount": "/storage/sdc1"}
+  ]
+}

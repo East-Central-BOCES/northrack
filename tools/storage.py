@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Preflight all declared data disks before any format operation."""
 import argparse
+import base64
+import ipaddress
 import json
 from pathlib import Path
 import stat
@@ -20,6 +22,15 @@ def flatten(tree):
 def inspect(config, allow_format):
     if config.get('role') not in ('host', 'engine'):
         raise ValueError('Configuration must select host or engine role')
+    key = config.get('engine_public_key', '')
+    if key:
+        if '\n' in key:
+            raise ValueError('One Engine public key is required')
+        algorithm, encoded, *_ = key.split()
+        if algorithm not in ('ssh-rsa', 'ssh-ed25519', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521'):
+            raise ValueError('Unsupported Engine public key')
+        base64.b64decode(encoded, validate=True)
+        ipaddress.ip_address(config['engine_address'])
     disks = config.get('disks', [])
     if config['role'] == 'engine' and disks:
         raise ValueError('The independent Engine must not format storage bricks')
@@ -31,6 +42,8 @@ def inspect(config, allow_format):
             raise ValueError('Select a stable disk identity under /dev/disk/by-id')
         if mount.parent != Path('/storage') or '..' in mount.parts or mount.name in ('', '.', '..'):
             raise ValueError('Data mounts must be direct children of /storage')
+        if mount.is_symlink() or mount.resolve(strict=False) != mount:
+            raise ValueError('Data mounts must not traverse symlinks')
         device = identifier.resolve(strict=True)
         if not stat.S_ISBLK(device.stat().st_mode) or str(device) in devices or str(mount) in mounts:
             raise ValueError('Disk identities and mount targets must be distinct block devices')
@@ -46,6 +59,13 @@ def inspect(config, allow_format):
                     raise ValueError(f'Refusing a disk used by another mount: {target}')
         partitions = tree.get('children', [])
         ready = len(partitions) == 1 and partitions[0]['type'] == 'part' and partitions[0].get('fstype') == 'xfs'
+        existing = subprocess.run(['findmnt', '-J', '--mountpoint', str(mount), '-o', 'UUID,FSTYPE'], text=True, capture_output=True)
+        if existing.returncode == 0:
+            mounted_uuid = json.loads(existing.stdout)['filesystems'][0].get('uuid')
+            if not mounted_uuid or mounted_uuid not in {row.get('uuid') for row in rows if row.get('uuid')}:
+                raise ValueError(f'Mount target is occupied by another filesystem: {mount}')
+        elif existing.returncode != 1:
+            raise RuntimeError(f'Cannot inspect mount target: {mount}')
         if not ready:
             if not allow_format or not config.get('allow_format', False):
                 raise ValueError(f'Disk needs formatting but destructive mode is not enabled: {identifier}')

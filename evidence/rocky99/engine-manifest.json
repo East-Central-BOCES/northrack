@@ -4712,6 +4712,11 @@
       "sha256": "788d3639aeace23cfd8fd0fb93fa8ec1af851df48cfc244df6565e1cd7673a7c"
     },
     {
+      "filename": "sssd-nfs-idmap-2.9.9-3.el9.x86_64.rpm",
+      "nevra": "sssd-nfs-idmap 0:2.9.9-3.el9 x86_64",
+      "sha256": "1d17564d082dd16e7d17415ef0d82ec7ab310c9023496d967a3f785f439e3377"
+    },
+    {
       "filename": "sudo-1.9.17p2-4.el9_9.3.x86_64.rpm",
       "nevra": "sudo 0:1.9.17p2-4.el9_9.3 x86_64",
       "sha256": "8b8fe9803db3e8b94a282736f29993055e4fefe6266cacd70adc730fa37c231a"
@@ -5097,7 +5102,6 @@
       "sha256": "42742c43c45cad4d1f94521153d57f3af9e59ceca9bb2d556dce761f287d32be"
     }
   ],
-  "signature_failures": [],
   "keys": [
     {
       "filename": "RPM-GPG-KEY-CentOS-SIG-Cloud",
@@ -5135,5 +5139,6 @@
       "filename": "RPM-GPG-KEY-oVirt-4.5",
       "sha256": "747278f162fa3f57653b5ca77eb8c28c24c8517dad9d0acded3cc8d3e07c3c24"
     }
-  ]
+  ],
+  "signature_failures": []
 }

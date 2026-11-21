@@ -45,7 +45,7 @@
       ansible.builtin.command:
         argv: "{{ ['python3', repo_root + '/tools/storage.py', config_path, '--apply'] + (['--format-data-disks'] if (format_data_disks | bool) else []) }}"
       register: nr_storage
-      changed_when: (nr_storage.stdout | from_json).changed
+      changed_when: nr_storage.rc == 0 and (nr_storage.stdout | from_json).changed
       when: not ansible_check_mode
 
     - name: Mount XFS data filesystems by UUID
@@ -62,6 +62,14 @@
       register: nr_contexts
       changed_when: false
       when: nr.role == 'host' and not ansible_check_mode
+
+    - name: Verify mounts before creating any brick directory
+      ansible.builtin.command:
+        argv: [findmnt, -n, --mountpoint, "{{ item.mount }}", -o, 'FSTYPE,UUID']
+      register: nr_mount_guard
+      changed_when: false
+      failed_when: nr_mount_guard.rc != 0 or nr_mount_guard.stdout.split() != ['xfs', item.uuid]
+      loop: "{{ (nr_storage.stdout | default('{\"disks\": []}') | from_json).disks }}"
 
     - name: Persist the brick SELinux context
       ansible.builtin.command:
@@ -110,18 +118,6 @@
         - {zone: public, state: disabled}
       when: nr.role == 'host'
 
-    - name: Read the storage connection zone
-      ansible.builtin.command:
-        argv: [nmcli, -g, connection.zone, connection, show, "{{ nr.storage_interface }}"]
-      register: nr_nm_zone
-      changed_when: false
-      when: nr.role == 'host'
-
-    - name: Persist the storage zone in NetworkManager
-      ansible.builtin.command:
-        argv: [nmcli, connection, modify, "{{ nr.storage_interface }}", connection.zone, storage]
-      when: nr.role == 'host' and nr_nm_zone.stdout != 'storage'
-
     - name: Apply the storage interface zone immediately
       ansible.posix.firewalld:
         zone: storage
@@ -140,6 +136,56 @@
         immediate: true
       when: nr.role == 'host'
 
+    - name: Reconcile persistent and effective storage MTU after package installation
+      ansible.builtin.command:
+        argv: "{{ ['python3', repo_root + '/tools/network.py', config_path] + ([] if ansible_check_mode else ['--apply']) }}"
+      register: nr_network
+      check_mode: false
+      changed_when: nr_network.rc == 0 and (nr_network.stdout | from_json).changed
+      when: nr.role == 'host'
+
+    - name: Read the existing Gluster port allocation
+      ansible.builtin.slurp:
+        src: /etc/glusterfs/glusterd.vol
+      register: nr_glusterd_config
+      when: nr.role == 'host'
+
+    - name: Identify the active brick port policy
+      ansible.builtin.set_fact:
+        nr_gluster_port_ready: "{{ (nr_glusterd_config.content | b64decode) is search('(?m)^\\s*option base-port 55000\\s*$') }}"
+      when: nr.role == 'host'
+
+    - name: Inspect registered volume directories even when the daemon is stopped
+      ansible.builtin.find:
+        paths: /var/lib/glusterd/vols
+        file_type: directory
+        recurse: false
+      register: nr_existing_volumes
+      when: nr.role == 'host' and not nr_gluster_port_ready
+
+    - name: Require an empty Gluster installation for a port allocation change
+      ansible.builtin.assert:
+        that:
+          - nr_existing_volumes.matched == 0
+          - (nr_glusterd_config.content | b64decode) is search('(?m)^\\s*option working-directory /var/lib/glusterd\\s*$')
+        fail_msg: Existing Gluster volumes require a planned maintenance procedure before changing brick port allocation
+      when: nr.role == 'host' and not nr_gluster_port_ready
+
+    - name: Allocate Gluster bricks above oVirt migration and management ports
+      ansible.builtin.lineinfile:
+        path: /etc/glusterfs/glusterd.vol
+        regexp: '^\s*#?\s*option base-port\s+'
+        line: '    option base-port 55000'
+        insertbefore: '^end-volume'
+      register: nr_gluster_ports
+      when: nr.role == 'host'
+
+    - name: Apply a changed Gluster port allocation
+      ansible.builtin.systemd:
+        name: glusterd
+        state: restarted
+      when: nr.role == 'host' and nr_gluster_ports.changed
+
     - name: Start host services
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -148,9 +194,57 @@
       loop: [glusterd, cockpit.socket]
       when: nr.role == 'host'
 
+    - name: Prepare the source-restricted Engine public key
+      ansible.builtin.file:
+        path: /root/.ssh
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      when: nr.engine_public_key | default('') | length > 0
+
+    - name: Authorize only the Engine source address for its management key
+      ansible.builtin.copy:
+        dest: /root/.ssh/authorized_keys
+        owner: root
+        group: root
+        mode: '0600'
+        content: "# Managed by northrack for Engine enrollment\nfrom=\"{{ nr.engine_address }}\",no-agent-forwarding,no-port-forwarding,no-X11-forwarding {{ nr.engine_public_key.split()[:2] | join(' ') }}\n"
+      when: nr.engine_public_key | default('') | length > 0
+
+    - name: Allow key-only root access exclusively from the test Engine
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/90-northrack-engine.conf
+        owner: root
+        group: root
+        mode: '0600'
+        validate: /usr/sbin/sshd -t -f %s
+        content: |
+          Match User root Address {{ nr.engine_address }}
+              PermitRootLogin prohibit-password
+              AuthenticationMethods publickey
+              AllowTcpForwarding no
+              X11Forwarding no
+          Match all
+      register: nr_engine_ssh
+      when: nr.engine_public_key | default('') | length > 0
+
+    - name: Remove an obsolete Engine login exception
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/90-northrack-engine.conf
+        state: absent
+      register: nr_removed_engine_ssh
+      when: nr.engine_public_key | default('') | length == 0
+
     - name: Validate SSH configuration
       ansible.builtin.command: /usr/sbin/sshd -t
       changed_when: false
+
+    - name: Reload validated SSH changes
+      ansible.builtin.systemd:
+        name: sshd
+        state: reloaded
+      when: nr_engine_ssh.changed or nr_removed_engine_ssh.changed
 
     - name: Create provisioning state directory
       ansible.builtin.file:

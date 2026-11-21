@@ -1,4 +1,5 @@
 import importlib.util
+import ast
 from pathlib import Path
 import unittest
 import xml.etree.ElementTree as ET
@@ -15,7 +16,8 @@ class LabBoundaryTests(unittest.TestCase):
         self.assertIn('clearpart --all --initlabel --drives=vda', config)
         self.assertNotIn('--drives=vdb', config)
         self.assertIn('rootpw --lock', config)
-        self.assertIn('network --device=eth1 --bootproto=none --onboot=yes --mtu=9000', config)
+        self.assertNotIn('--bootproto=none', config)
+        self.assertIn("config['connection']['autoconnect'] = 'true'", config)
 
     def test_storage_has_no_forwarding_or_dhcp(self):
         tree = ET.fromstring(lab.storage_xml())
@@ -34,6 +36,11 @@ class LabBoundaryTests(unittest.TestCase):
     def test_engine_is_independent_of_storage_network(self):
         config = lab.kickstart('engine', 'ssh-ed25519 AAAA')
         self.assertNotIn('--device=eth1', config)
+
+    def test_offline_profile_setup_is_valid_python(self):
+        config = lab.kickstart('node1', 'ssh-ed25519 AAAA')
+        script = config.split("python3 - <<'NETWORK_PROFILES'\n", 1)[1].split('\nNETWORK_PROFILES', 1)[0]
+        ast.parse(script)
 
     def test_private_keys_and_multiline_input_are_rejected(self):
         for key in ('-----BEGIN PRIVATE KEY-----', 'ssh-ed25519 AAAA\nreboot'):

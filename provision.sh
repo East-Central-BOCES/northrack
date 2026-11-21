@@ -26,6 +26,9 @@ python3 "$repo_root/tools/accepted_set.py" "$rpm_set" "$manifest_hash" "$role"
 storage_flags=()
 $format && storage_flags+=(--format-data-disks)
 python3 "$repo_root/tools/storage.py" "$config" "${storage_flags[@]}"
+if [[ "$role" == host ]]; then
+    python3 "$repo_root/tools/network.py" "$config"
+fi
 if $check && ! command -v ansible-playbook >/dev/null; then
     echo 'Preflight passed; Ansible bootstrap is not installed. No configuration changes made.'
     exit 0

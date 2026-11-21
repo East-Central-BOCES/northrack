@@ -49,7 +49,9 @@ class AcceptanceTests(unittest.TestCase):
         tree = {'blockdevices': [{'name': '/dev/vda', 'type': 'disk', 'mountpoints': [None],
                                 'children': [{'name': '/dev/vda1', 'type': 'part', 'fstype': 'xfs', 'mountpoints': ['/']}]}]}
         config = {'role': 'host', 'allow_format': True, 'disks': [{'by_id': '/dev/disk/by-id/virtio-nr99-test', 'mount': '/storage/test'}]}
-        with patch.object(Path, 'resolve', return_value=Path('/dev/vda')), \
+        original_resolve = Path.resolve
+        resolve = lambda path, strict=False: Path('/dev/vda') if str(path).startswith('/dev/disk/') else original_resolve(path, strict=strict)
+        with patch.object(Path, 'resolve', resolve), \
              patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=stat.S_IFBLK)), \
              patch.object(storage, 'run', return_value=SimpleNamespace(stdout=json.dumps(tree))):
             with self.assertRaisesRegex(ValueError, 'another mount'):
@@ -58,6 +60,15 @@ class AcceptanceTests(unittest.TestCase):
     def test_independent_engine_cannot_format_data_disks(self):
         with self.assertRaises(ValueError):
             storage.inspect({'role': 'engine', 'disks': [{'by_id': '/dev/disk/by-id/test', 'mount': '/storage/test'}]}, True)
+
+    def test_invalid_engine_access_is_rejected_before_disk_inspection(self):
+        for key, address in [('ssh-rsa AAAA\ncommand=bad', '172.31.231.10'),
+                             ('ssh-dss AAAA', '172.31.231.10'),
+                             ('ssh-rsa %%%%', '172.31.231.10'),
+                             ('ssh-rsa AAAA', '172.31.231.0/24')]:
+            with self.subTest(key=key, address=address), self.assertRaises(ValueError):
+                storage.inspect({'role': 'host', 'engine_public_key': key,
+                                 'engine_address': address, 'disks': []}, False)
 
 
 if __name__ == '__main__':

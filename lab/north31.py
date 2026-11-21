@@ -49,11 +49,30 @@ def kickstart(name, key):
     key = algorithm + ' ' + encoded
     number = NODES[name]
     storage = '' if name == 'engine' else (
-        'network --device=eth1 --bootproto=none --onboot=yes --mtu=9000 --nodefroute --noipv6\n'
         f'network --device=eth1 --vlanid=106 --interfacename=storage106 '
         f'--bootproto=static --ip=172.31.232.{number} --netmask=255.255.255.0 '
         '--onboot=yes --mtu=9000 --nodefroute --noipv6\n'
     )
+    storage_post = '' if name == 'engine' else '''python3 - <<'NETWORK_PROFILES'
+import configparser
+from pathlib import Path
+for name in ('eth1', 'storage106'):
+    path = Path('/etc/NetworkManager/system-connections') / (name + '.nmconnection')
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(path)
+    config['connection']['autoconnect'] = 'true'
+    if 'ethernet' not in config:
+        config['ethernet'] = {}
+    config['ethernet']['mtu'] = '9000'
+    config['ipv6']['method'] = 'disabled'
+    if name == 'eth1':
+        config['ipv4'].clear()
+        config['ipv4']['method'] = 'disabled'
+    with path.open('w') as target:
+        config.write(target)
+    path.chmod(0o600)
+NETWORK_PROFILES
+'''
     return f'''text
 cdrom
 lang en_US.UTF-8
@@ -83,6 +102,7 @@ curl
 printf 'jarredm ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/nr99-admin
 chmod 440 /etc/sudoers.d/nr99-admin
 printf 'PermitRootLogin no\\nPasswordAuthentication no\\nKbdInteractiveAuthentication no\\n' > /etc/ssh/sshd_config.d/00-nr99.conf
+{storage_post}
 systemctl enable sshd chronyd
 %end
 '''

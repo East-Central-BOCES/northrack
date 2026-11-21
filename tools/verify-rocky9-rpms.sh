@@ -41,6 +41,11 @@ fi
 printf '%s\n' "${packages[@]}" > "$output/requested-packages.txt"
 dnf --setopt=timeout=20 --setopt=retries=2 --setopt=install_weak_deps=False \
     --best download --resolve --alldeps --destdir "$output/rpms" "${packages[@]}"
+# The dependency walker above does not account for conditional requirements of
+# packages already present in the OS (for example SSSD's NFS id-map provider).
+# Also resolve the real installation transaction, without installing workloads.
+dnf -y --setopt=timeout=20 --setopt=retries=2 --setopt=install_weak_deps=False \
+    --best install --downloadonly --downloaddir "$output/rpms" "${packages[@]}"
 python3 - "$output" "$role" <<'PY'
 import hashlib
 import json

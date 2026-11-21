@@ -88,3 +88,41 @@ Physical fault tolerance and performance across independent servers, production
 Engine enrollment, data migration, and self-hosted Engine deployment are outside
 this acceptance round. No gate may be marked passed on the strength of an
 earlier dependency-only probe.
+
+## Implemented lab helpers
+
+Run the guest-side helpers as root only on their named private lab guest. The
+Engine connection helper reads its password locally from a root-only directory;
+API calls verify the Engine CA and never enable SDK debug logging. Engine API
+login is `admin@ovirt@internalsso` for the packaged Keycloak configuration.
+
+| Helper | Purpose |
+| --- | --- |
+| `setup_engine.py` | Initialize the independent Engine with accepted offline packages; keep generated answers/passwords root-only. |
+| `offline_enrollment.py enter/restore` | Temporarily restrict host deployment to the accepted local RPM repository and restore the original repository directory afterward. |
+| `enroll_hosts.py --hosts node1 node2 node3` | Enroll only the three private guests in the `nr99` data center and Broadwell cluster. |
+| `firewall_policy.py` | Install and exercise oVirt's documented post-deployment site hook, scoped to the `nr99` cluster. |
+| `gluster.py --known-hosts FILE` | From the operator's Mac, establish storage-only peer identities in both directions and create `nr99-data`/`nr99-io` as full replica-3 volumes. |
+| `engine_storage.py` | Attach and activate only `nr99-data` as the test data domain. |
+| `download_cloud_image.py` | Download the official Rocky 9.9 cloud image and verify its pinned SHA-256. |
+| `nested_vm.py create/start/status/migrate` | Upload through verified TLS, create one disposable workload, and boot/migrate it between named lab hosts. |
+| `guest_io.py prepare/verify/stop` | Inside the nested guest, retain a 16 MiB payload checksum and boot ID while running a bounded fsync journal. |
+| `recovery.py --known-hosts FILE` | From the operator's Mac, inject virtual node power loss and isolated storage NIC partitions, restore faults, and verify all replicas and healing. |
+| `dhcp_dns_probe.py` | On north31, use one temporary macvlan namespace to obtain a fresh MAAS lease and verify its hostname through authoritative DNS; release the lease and remove the namespace. |
+
+Keep the verified operator `known_hosts` file outside Git. The operator public
+key is staged separately. All VM and volume names, private addresses, and fault
+targets are fixed to this disposable lab. These helpers do not enroll physical
+hosts or select production storage.
+
+Gluster brick allocation is configured to 55000–60999 before creating volumes,
+avoiding oVirt's public migration and management ports. Provisioning refuses a
+port-range change when volume metadata already exists. For a planned reboot of
+an enrolled host, place it in Engine maintenance first and transfer its SPM
+responsibilities; the power-loss fixture deliberately uses an abrupt virtual
+power-off. A reboot without maintenance can wait indefinitely on storage leases.
+
+Failed volume staging can leave a volume-id attribute and an empty `.glusterfs`
+directory. `gluster.py --clear-incomplete-staging` is an explicit recovery option
+that requires the volume to be absent on all peers and the brick to contain no
+data. It removes only that empty metadata, never a registered volume or files.

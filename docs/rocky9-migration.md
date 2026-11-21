@@ -19,28 +19,77 @@ and verified off-host recovery material.
   for ten days. That process and the host's apt source files were left intact.
 - The official Rocky 9.9 minimal ISO passed SHA-256 verification:
   `56772c6c07464ea8e55b64cb5ec2448d16e1b4673b8041678dacfd540131401c`.
-- `nr99-node1` and `nr99-engine` installed and booted Rocky 9.9 with SELinux
-  enforcing. The installer-media package list was corrected to exclude Git,
-  which is not available on the minimal ISO. First-attempt logs are retained.
-- The guest's VLAN initially remained at MTU 1500. Explicitly configuring the
-  parent and VLAN to 9000 and disabling parent DHCP corrected it; future lab
-  Kickstarts explicitly configure the parent.
-- Gate 1 passed: all **1,013 host RPMs** and **1,019 Engine RPMs** have valid
+- All four independent lab guests installed and booted Rocky 9.9 with SELinux
+  enforcing. The installer-media package list excludes Git, which is absent
+  from the minimal ISO. Invalid Kickstart `--bootproto=none` was replaced with
+  explicit offline NetworkManager keyfile configuration. Failed attempts are retained.
+- The storage parent and VLAN persist MTU 9000 across reboot. The implementation
+  activates a uniquely identified inactive parent, enables autoconnect, disables
+  parent DHCP, and reconciles both saved profiles and live interfaces.
+- Gate 1 passed: all **1,013 host RPMs** and **1,020 Engine RPMs** have valid
   signatures. Ceph Pacific packages are signed with the published CentOS
   Storage SIG key; enabling repository GPG checking works without a signature
   bypass. Only keys referenced by enabled repositories are imported.
 - Accepted manifests include RPM and publisher-key file hashes. Host manifest:
   `69bcb2f87f39aacd2006125ed1745c25acff2c523cbba17143b1b6b312949d60`;
   Engine manifest:
-  `14f40ea152d306edb08314fcb67d265d245ddd6db13da582159c717bd3df2a4f`.
+  `c8d1e55c44b87723af2c2fece3e560d2c894b19cce3026337fb1a0e4660beddf`.
   Full manifests are committed under `evidence/rocky99`; bulk RPMs and logs are
   retained outside Git in the MAAS workspace and acceptance VMs.
-- Powered-off `before-provisioning` checkpoints were taken for both acceptance
-  VMs, including node1's blank data disks. No physical disk has been rebuilt.
-- Provisioning, integration, recovery, MAAS deployment, and bare-metal acceptance
-  remain in progress or pending; the historical scripts are not promoted.
+- The first Engine install identified a conditional `sssd-nfs-idmap` dependency
+  omitted by the download dependency walk. Verification now also performs a
+  native DNF download-only installation transaction against the actual guest's
+  installed packages. The corrected signed set installed successfully.
+- Gate 2 passed: all three hosts provisioned from the accepted local cache;
+  node1 retained its configuration after reboot and a second run changed zero
+  tasks. Six live rejection fixtures passed (bad manifest, missing cache, OS
+  disk, wrong mount, management interface, foreign mounted filesystem).
+  Node2 was terminated after formatting and before mounting, then resumed with
+  unchanged filesystem UUIDs. Failed runs did not write success markers.
+- The independent Engine initialized successfully. TLS validation and authenticated
+  API access work; credentials remain root-only on the Engine. All three hosts
+  enrolled using source-restricted public-key SSH and accepted local RPMs only.
+- Vendor host deployment reopened Gluster on the public zone. The documented
+  Engine post-deployment site hook now restores the lab's storage-only rule.
+  Brick allocation starts at 55000 to avoid oVirt's publicly allowed migration
+  ports 49152–49216 and management/image service ports 54321–54323.
+  Post-enrollment host health checks pass on all three nodes.
+- Powered-off checkpoints preserve the pre-provisioning, pre-Engine-setup and
+  pre-enrollment states. No physical disk has been rebuilt. Integration and
+  recovery tests are in progress; MAAS and bare-metal acceptance remain pending.
+- Ansible reports that EPEL's `ansible.posix` collection does not advertise
+  compatibility with the supplied ansible-core 2.14.18. The modules used here
+  execute successfully in native tests; this warning remains recorded and is
+  not suppressed. The branch is not promoted into the production deployment path.
 
 ## Baseline and deployment boundary
+
+### Recovery investigation — 2026-11-20
+
+The interrupted recovery observation eventually timed out after 15 minutes.
+All injected links were restored. On resumption, all Engine hosts and the nested
+VM were up, with three pending data-volume entries on two replicas and no
+reported split-brain. The nested payload checksum and original boot ID still
+matched; its bounded writer completed all 1,800 journal entries.
+
+Two self-heal daemons retained disconnected clients. Explicit daemon recovery
+on node1/node3 preserved all brick processes and restored successful heal
+commands. A repeat baseline write then failed the direct-replica checksum
+guard: the existing FUSE client did not create the file on node3. No new fault
+was injected, and quorum testing remained gated.
+
+The disposable VM was gracefully shut down, its data domain put in maintenance,
+and the standalone I/O mount released. Full heals succeeded with the workload
+quiescent. All 40 file/shard paths then matched across all three replicas;
+both volumes reported zero pending entries and the data volume zero split-brain.
+The domain and VM are being reactivated with fresh clients for another test.
+This manual recovery does not establish automatic partition recovery acceptance.
+
+`recovery.py` now requires successful heal triggers as well as connected bricks,
+zero pending heals and zero split-brain. Its final error distinguishes readiness
+failure from an actual split-brain report. `check_replicas.py` compares quiescent
+file/shard contents; `repair_shd.py` is an explicit lab repair, never an automatic
+step hidden inside the acceptance test.
 
 The reviewed legacy revision is `9f20bea6c120d69f1df190cc30749705320cf4d9`.
 The production MAAS preseed `curtin_userdata_centos` contains commented commands
