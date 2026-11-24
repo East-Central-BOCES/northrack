@@ -67,6 +67,12 @@ disk. Do not treat installer creation as installation acceptance.
    Validate physical KVM, bonds, VLAN 106, MTU, management access, DNS/time,
    SELinux, bounded checksum I/O, and two reboots. Leave north31 on Rocky with
    glusterd available, without joining a production cluster.
+7. **Monitoring and operational handoff:** before considering the project
+   complete, integrate and test alerts for node/brick disconnection and failed
+   or stalled healing. Keep incidents open until recovery is verified, and
+   document the operator recovery procedure. The operator deferred selecting
+   and integrating their existing monitoring platform on 2026-11-24; this
+   requirement remains outstanding.
 
 | Role | Original device | WWN | Data mount |
 | --- | --- | --- | --- |

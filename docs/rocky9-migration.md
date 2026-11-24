@@ -12,6 +12,11 @@ as XFS and leaving the host on Rocky 9.9. The broken `vscg` VM has no service
 availability requirement. Reimaging remains gated on successful lab acceptance
 and verified off-host recovery material.
 
+Project completion also requires integration and testing of disconnect and
+failed-heal alerts, verified recovery notification, and an operator recovery
+procedure. On 2026-11-24 the operator deferred the monitoring-platform details
+for later work. This remains an outstanding completion requirement.
+
 ## Execution record — 2026-11-19
 
 - North31's missing VM utilities were installed using a separate apt metadata
@@ -82,7 +87,7 @@ quiescent. All 40 file/shard paths then matched across all three replicas;
 both volumes reported zero pending entries and the data volume zero split-brain.
 The domain and VM were reactivated with fresh clients. The VM started on node3
 and then successfully live-migrated back to node1. Its original payload checksum
-still matched after this planned maintenance boot. Another partition test is
+still matched after this planned maintenance boot. Another partition test
 ran from this recovered state.
 This manual recovery does not establish automatic partition recovery acceptance.
 
@@ -125,6 +130,24 @@ diagnostics are implemented in `probe_portmap.py`; `shd_state.py` extracts only
 active connection flags from self-heal statedumps. Publisher protocol sources:
 [portmap XDR](https://github.com/gluster/glusterfs/blob/v11.1/rpc/xdr/src/portmap-xdr.x)
 and [RPC identifiers](https://github.com/gluster/glusterfs/blob/v11.1/rpc/rpc-lib/src/protocol-common.h).
+
+Online research during the investigation covered the upstream troubleshooting
+guide, issue reports, package availability, and the 11.1/11.2 client-handshake
+and RPC sources. Related reports were rechecked on 2026-11-24:
+
+- [Gluster #2492](https://github.com/gluster/glusterfs/issues/2492) describes
+  self-heal/client connectivity and port mismatches on older 8.x/9.x releases.
+  It references a release-9 fix; it does not establish a fix for our 11.1 case.
+- [Gluster #4274](https://github.com/gluster/glusterfs/issues/4274) describes
+  11.1 port/reconnection trouble and stalled healing after brick restarts.
+  The author's recovery reports do not establish that our reproduction has
+  the same cause or a released software fix.
+- [Gluster #4028](https://github.com/gluster/glusterfs/issues/4028) concerns
+  Gluster 11 client/brick disconnections during heavy writes or rebalance.
+  Its initiating workload differs from our storage-link partition.
+
+These are research leads, not a confirmed upstream diagnosis. No reviewed
+report or candidate package has yet been demonstrated to fix our exact test.
 
 ## Baseline and deployment boundary
 
