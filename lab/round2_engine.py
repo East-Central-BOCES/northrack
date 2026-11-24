@@ -9,6 +9,31 @@ import subprocess
 import time
 
 
+def activate_ready(service, address, retry_error, deadline, clock=time.monotonic,
+                   sleep=time.sleep, connect=socket.create_connection):
+    """Wait for the management listener; retry only the observed network fault."""
+    while clock() < deadline:
+        state = service.get().status.value
+        if state == 'up':
+            return
+        if state == 'maintenance':
+            try:
+                with connect((address, 54321), timeout=3):
+                    pass
+            except OSError:
+                sleep(5)
+                continue
+            try:
+                service.activate()
+            except retry_error as error:
+                if 'Network error during communication with the Host' not in str(error):
+                    raise
+        elif state not in ('connecting', 'initializing'):
+            raise RuntimeError('Unexpected host activation state: ' + state)
+        sleep(5)
+    raise RuntimeError('Host management readiness/activation deadline exceeded')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['quiesce', 'status', 'maintain-hosts', 'activate-hosts', 'resume'])
@@ -16,6 +41,7 @@ def main():
     if os.geteuid() or socket.gethostname() != 'engine.nr99.test':
         raise SystemExit('Restricted to root on the independent nr99 Engine')
     from engine_api import connect
+    import ovirtsdk4
     if args.action in ('quiesce', 'resume'):
         subprocess.run(['python3', str(Path(__file__).with_name('storage_maintenance.py')),
                         'quiesce' if args.action == 'quiesce' else 'activate'],
@@ -36,13 +62,15 @@ def main():
             if vms[0].status.value != 'down' or domain.status.value != 'maintenance':
                 raise RuntimeError('Workload and storage must be quiescent')
             target = 'maintenance' if args.action == 'maintain-hosts' else 'up'
+            activation_deadline = time.monotonic() + 420
             for host in selected:
                 service = hosts.host_service(host.id)
+                if target == 'up':
+                    activate_ready(service, host.address, ovirtsdk4.Error, activation_deadline)
+                    continue
                 current = service.get().status.value
                 if target == 'maintenance' and current != target:
                     service.deactivate()
-                elif target == 'up' and current == 'maintenance':
-                    service.activate()
                 for _ in range(90):
                     if service.get().status.value == target:
                         break

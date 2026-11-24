@@ -23,8 +23,8 @@ from round2_probe import expected, valid_case
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'baseline', 'scenario', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 300, 900, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -162,8 +162,59 @@ class Case:
         return True
 
     def require(self, step):
-        if json.loads((self.path / (step + '.result.json')).read_text())['status'] != 'PASS':
+        receipt = json.loads((self.path / (step + '.result.json')).read_text())
+        if step == 'checkpoint' and receipt['status'] != 'PASS':
+            self.require('checkpoint-finish')
+            return
+        if receipt['status'] != 'PASS':
             raise RuntimeError('Previous stage must pass: ' + step)
+
+    def activate_hosts_ready(self):
+        deadline = time.monotonic() + 180
+        for node in (1, 2, 3):
+            while self.guest(node, ['systemctl', 'is-active', '--quiet', 'vdsmd', 'supervdsmd'],
+                             timeout=12, check=False).returncode:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Host management services did not become active')
+                time.sleep(5)
+        self.observations['engine'] = self.engine('activate-hosts')
+        if any(s != 'up' for s in self.observations['engine']['hosts'].values()):
+            raise RuntimeError('Not all hosts returned to UP')
+        self.quiescent()
+
+    def checkpoint_finish(self):
+        # Preserve the original failure. Resume only after all snapshots/start commands succeeded.
+        original = json.loads((self.path / 'checkpoint.result.json').read_text())
+        if original['status'] != 'FAILED':
+            raise RuntimeError('Completion step requires the retained failed checkpoint receipt')
+        checkpoint = json.loads((self.path / 'checkpoint.json').read_text())
+        if checkpoint['uuids'] != self.config['uuids'] or checkpoint['label'] != 'nr99-r2-' + self.id:
+            raise RuntimeError('Checkpoint identity mismatch')
+        expected_images = {f'/var/lib/libvirt/images/nr99/node{n}/{disk}.qcow2'
+                           for n in (1, 2, 3) for disk in ('os', 'data01', 'data02')}
+        if set(checkpoint['images']) != expected_images or len(checkpoint['images']) != 9:
+            raise RuntimeError('Unexpected checkpoint image inventory')
+        records = [json.loads(line) for line in (self.path / 'checkpoint.log').read_text().splitlines()
+                   if line.startswith('{')]
+        for image in expected_images:
+            matches = [r for r in records if r.get('command') == ['qemu-img', 'info', '--output=json', image]
+                       and r.get('rc') == 0]
+            if not matches or checkpoint['label'] not in [s['name'] for s in json.loads(matches[-1]['stdout']).get('snapshots', [])]:
+                raise RuntimeError('Missing saved snapshot verification: ' + image)
+        self.quiescent()
+        for node in (1, 2, 3):
+            name, _ = self.domain(node)
+            if self.call(['virsh', 'domstate', name]).stdout.strip() != 'running':
+                raise RuntimeError('Completion requires all three already restarted guests')
+            xml = ET.fromstring(self.call(['virsh', 'dumpxml', name]).stdout)
+            actual = [d.find('source').get('file') for d in xml.findall("devices/disk[@device='disk']")]
+            if set(actual) != {p for p in expected_images if f'/node{node}/' in p} or len(actual) != 3:
+                raise RuntimeError('Current disk inventory differs from checkpoint')
+        self.activate_hosts_ready()
+        if not self.readiness():
+            raise RuntimeError('Post-checkpoint heal readiness failed')
+        self.observations['checkpoint_label'] = checkpoint['label']
+        self.observations['verified_snapshots'] = 9
 
     def checkpoint(self):
         self.engine('quiesce')
@@ -214,8 +265,7 @@ class Case:
                 if time.monotonic() > deadline:
                     raise RuntimeError('Lab guests did not regain SSH after checkpoint')
                 time.sleep(3)
-        self.engine('activate-hosts')
-        self.quiescent()
+        self.activate_hosts_ready()
 
     def baseline(self):
         self.require('checkpoint')
@@ -354,7 +404,7 @@ def worker(case, step):
         outcome = {'case': case.id, 'step': step, 'status': 'FAILED'}
         atomic(case.path / 'progress.json', {'step': step, 'status': 'RUNNING'})
         try:
-            getattr(case, step)()
+            getattr(case, step.replace('-', '_'))()
             outcome['status'] = 'PASS'
         except Inconclusive as error:
             outcome.update(status='INCONCLUSIVE', error=str(error))

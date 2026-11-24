@@ -1,9 +1,22 @@
 # Round 2: operator-paced stale-replica safety test
 
-Prepared 2026-11-24. **Draft scripts; no round-2 stages have been executed.**
+Prepared 2026-11-24. **Native validation in progress; no fault scenario has run.**
 Local unit tests and syntax checks have passed. The installed systemd version
 (255) and Gluster status XML layout were checked through read-only commands.
 Native bootstrap and stage-by-stage review remain required.
+
+Bootstrap and preflight subsequently passed. Case
+`376f5ef9443b4ae88b995c143e6504d6` created and verified all nine cold snapshots
+and restarted the three hosts, then failed during Engine activation with a
+host communication error. SSH readiness preceded VDSM readiness. The corrected
+runner waits for host management services and the Engine-to-host listener, and
+retries only this specific network error within a bounded activation deadline.
+
+The separately requested `checkpoint-finish` stage validates the retained
+checkpoint receipt, saved snapshot verification records, current VM UUIDs and
+disk paths; completes activation; checks heal readiness; and leaves workload
+and data domain quiescent. It does not repeat snapshots or overwrite the original
+failure. A PASS here satisfies the checkpoint prerequisite for `baseline`.
 
 ## Objective
 
