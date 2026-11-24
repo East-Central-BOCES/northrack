@@ -12,6 +12,7 @@ import time
 def activate_ready(service, address, retry_error, deadline, clock=time.monotonic,
                    sleep=time.sleep, connect=socket.create_connection):
     """Wait for the management listener; retry only the observed network fault."""
+    activation_requested = False
     while clock() < deadline:
         state = service.get().status.value
         if state == 'up':
@@ -25,10 +26,11 @@ def activate_ready(service, address, retry_error, deadline, clock=time.monotonic
                 continue
             try:
                 service.activate()
+                activation_requested = True
             except retry_error as error:
                 if 'Network error during communication with the Host' not in str(error):
                     raise
-        elif state not in ('connecting', 'initializing'):
+        elif state not in ('connecting', 'initializing') and not (state == 'unassigned' and activation_requested):
             raise RuntimeError('Unexpected host activation state: ' + state)
         sleep(5)
     raise RuntimeError('Host management readiness/activation deadline exceeded')

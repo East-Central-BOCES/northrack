@@ -18,6 +18,12 @@ disk paths; completes activation; checks heal readiness; and leaves workload
 and data domain quiescent. It does not repeat snapshots or overwrite the original
 failure. A PASS here satisfies the checkpoint prerequisite for `baseline`.
 
+The first completion attempt activated node2, but stopped on its transient
+`unassigned` state before it became UP. The runner now tolerates that state
+only after its own accepted activation request. Explicit `--attempt 2` on
+`start`, `show` and `wait` uses separate service, log and result names, retaining
+the original failure. Stage prerequisites use the latest completed attempt.
+
 ## Objective
 
 Test the assumption that losing another current replica while node3 remains

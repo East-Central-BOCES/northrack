@@ -28,6 +28,12 @@ LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
+def attempt_name(step, attempt):
+    if not 1 <= attempt <= 9:
+        raise ValueError('Attempt must be between 1 and 9')
+    return step if attempt == 1 else step + '-attempt' + str(attempt)
+
+
 class Inconclusive(RuntimeError):
     pass
 
@@ -162,7 +168,8 @@ class Case:
         return True
 
     def require(self, step):
-        receipt = json.loads((self.path / (step + '.result.json')).read_text())
+        receipts = [self.path / (attempt_name(step, n) + '.result.json') for n in range(1, 10)]
+        receipt = json.loads(next(path for path in reversed(receipts) if path.exists()).read_text())
         if step == 'checkpoint' and receipt['status'] != 'PASS':
             self.require('checkpoint-finish')
             return
@@ -394,14 +401,14 @@ class Case:
             raise RuntimeError('Workload was not restored')
 
 
-def worker(case, step):
+def worker(case, step, attempt=1):
     with (ROOT / 'job.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        result = case.path / (step + '.result.json')
+        result = case.path / (attempt_name(step, attempt) + '.result.json')
         if result.exists():
             raise RuntimeError('Stage already has a receipt; retain it and review before retrying')
         started = time.time()
-        outcome = {'case': case.id, 'step': step, 'status': 'FAILED'}
+        outcome = {'case': case.id, 'step': step, 'attempt': attempt, 'status': 'FAILED'}
         atomic(case.path / 'progress.json', {'step': step, 'status': 'RUNNING'})
         try:
             getattr(case, step.replace('-', '_'))()
@@ -432,6 +439,8 @@ def main():
     parser.add_argument('action', choices=['new', 'start', 'worker', 'show', 'wait', 'watchdog', 'restore-links'])
     parser.add_argument('--case', type=valid_case)
     parser.add_argument('--step', choices=STEPS)
+    parser.add_argument('--attempt', type=int, choices=range(1, 10), default=1,
+                        help='Explicit attempt number; retains earlier receipts and logs')
     parser.add_argument('--node', type=int, choices=[2, 3])
     args = parser.parse_args()
     if os.geteuid() or socket.gethostname().split('.')[0] != 'north31':
@@ -451,25 +460,28 @@ def main():
     if args.action in ('start', 'worker', 'show', 'wait') and not args.step:
         parser.error('--step is required')
     if args.action == 'start':
-        if (case.path / (args.step + '.result.json')).exists():
+        name = attempt_name(args.step, args.attempt)
+        if (case.path / (name + '.result.json')).exists():
             raise RuntimeError('Existing stage result retained; do not silently rerun')
-        unit = f'nr99-r2-{case.id[:12]}-{args.step}'
+        unit = f'nr99-r2-{case.id[:12]}-{name}'
         subprocess.run(['systemd-run', '--unit=' + unit, '--property=Type=exec',
                         '--property=RuntimeMaxSec=' + str(LIMITS[args.step]),
-                        '--property=StandardOutput=append:' + str(case.path / (args.step + '.log')),
-                        '--property=StandardError=append:' + str(case.path / (args.step + '.log')),
-                        'python3', str(CODE / 'staged_safety.py'), 'worker', '--case', case.id, '--step', args.step], check=True)
-        print(json.dumps({'started': args.step, 'unit': unit, 'result_file': str(case.path / (args.step + '.result.json'))}))
+                        '--property=StandardOutput=append:' + str(case.path / (name + '.log')),
+                        '--property=StandardError=append:' + str(case.path / (name + '.log')),
+                        'python3', str(CODE / 'staged_safety.py'), 'worker', '--case', case.id, '--step', args.step,
+                        '--attempt', str(args.attempt)], check=True)
+        print(json.dumps({'started': args.step, 'attempt': args.attempt, 'unit': unit, 'result_file': str(case.path / (name + '.result.json'))}))
     elif args.action == 'worker':
         signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(InterruptedError('Service deadline or stop request')))
-        worker(case, args.step)
+        worker(case, args.step, args.attempt)
     elif args.action in ('show', 'wait'):
-        path = case.path / (args.step + '.result.json')
+        name = attempt_name(args.step, args.attempt)
+        path = case.path / (name + '.result.json')
         if args.action == 'wait':
             deadline = time.monotonic() + LIMITS[args.step] + 90
             while not path.exists() and time.monotonic() < deadline:
                 time.sleep(5)  # Optional terminal-side wait, never a chat polling loop.
-        print(path.read_text() if path.exists() else json.dumps({'status': 'NO_RESULT_YET', 'log': str(case.path / (args.step + '.log'))}))
+        print(path.read_text() if path.exists() else json.dumps({'status': 'NO_RESULT_YET', 'log': str(case.path / (name + '.log'))}))
         if args.action == 'wait' and (not path.exists() or json.loads(path.read_text())['status'] != 'PASS'):
             raise SystemExit(1)
     elif args.action == 'watchdog':

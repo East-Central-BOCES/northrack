@@ -6,12 +6,32 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / 'lab'))
-from staged_safety import Inconclusive, arm_then_down, classify
+from staged_safety import Inconclusive, arm_then_down, classify, attempt_name
 from round2_probe import expected, valid_case
 from round2_engine import activate_ready
 
 
 class SafetyVerdictTests(unittest.TestCase):
+    def test_unassigned_is_tolerated_only_after_accepted_activation(self):
+        service = Mock()
+        state = lambda name: SimpleNamespace(status=SimpleNamespace(value=name))
+        service.get.side_effect = [state('maintenance'), state('unassigned'), state('up')]
+        connection = Mock()
+        connection.__enter__ = Mock()
+        connection.__exit__ = Mock(return_value=False)
+        activate_ready(service, 'node2.nr99.test', RuntimeError, 100,
+                       clock=lambda: 0, sleep=lambda _: None, connect=lambda *a, **k: connection)
+        service.activate.assert_called_once()
+        service.get.side_effect = [state('unassigned')]
+        with self.assertRaisesRegex(RuntimeError, 'Unexpected host activation state'):
+            activate_ready(service, 'node2.nr99.test', RuntimeError, 100, clock=lambda: 0)
+
+    def test_attempts_preserve_original_result_names(self):
+        self.assertEqual(attempt_name('checkpoint-finish', 1), 'checkpoint-finish')
+        self.assertEqual(attempt_name('checkpoint-finish', 2), 'checkpoint-finish-attempt2')
+        with self.assertRaises(ValueError):
+            attempt_name('checkpoint-finish', 0)
+
     def test_activation_waits_for_listener_and_retries_network_failure(self):
         service = Mock()
         state = lambda name: SimpleNamespace(status=SimpleNamespace(value=name))
