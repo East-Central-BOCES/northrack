@@ -33,6 +33,11 @@ disk. Do not treat installer creation as installation acceptance.
 
 ## Gates, in order
 
+The next safety round uses the [operator-paced round-2 plan](ROUND2-PLAN.md).
+Its draft runner starts one detached job at a time; the operator confirms
+completion before a single result read and the next step. No round-2 fault
+test has been executed yet.
+
 1. **RPM verification:** use `tools/verify-rocky9-rpms.sh host OUTPUT` and
    `engine OUTPUT` inside separate clean acceptance guests. Record complete
    manifests, repository policy, signing keys and fingerprints. Every selected
