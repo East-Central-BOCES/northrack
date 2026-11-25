@@ -24,6 +24,17 @@ only after its own accepted activation request. Explicit `--attempt 2` on
 `start`, `show` and `wait` uses separate service, log and result names, retaining
 the original failure. Stage prerequisites use the latest completed attempt.
 
+The baseline passed. The first scenario stopped INCONCLUSIVE because node3's
+raw canary already matched G1 after its link returned; node2 was not disconnected.
+Both links were confirmed UP, with no watchdog receipt. The separately requested
+`automatic-verify` stage observes heal-info/backlog/split-brain, compares the
+acknowledged canaries and both quiescent replica trees, and captures SHD client
+connection flags. It never issues a heal trigger or restarts daemons. SHD
+connection inspection requests a diagnostic statedump (SIGUSR1). Its PASS
+would verify recovery for this run, not answer the untested second-failure case
+or erase the earlier recovery failure. Use the usual `start`/`wait`/`show`
+commands with `--step automatic-verify`.
+
 ## Objective
 
 Test the assumption that losing another current replica while node3 remains

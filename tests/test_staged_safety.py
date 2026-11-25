@@ -6,12 +6,23 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / 'lab'))
-from staged_safety import Inconclusive, arm_then_down, classify, attempt_name
+from staged_safety import Case, Inconclusive, arm_then_down, classify, attempt_name
 from round2_probe import expected, valid_case
 from round2_engine import activate_ready
 
 
 class SafetyVerdictTests(unittest.TestCase):
+    def test_observation_does_not_trigger_healing(self):
+        case = Case.__new__(Case)
+        brick = '<brick><status>Connected</status><numberOfEntries>0</numberOfEntries></brick>'
+        xml = '<cliOutput><opRet>0</opRet><healInfo><bricks>' + brick * 3 + '</bricks></healInfo></cliOutput>'
+        case.guest = Mock(return_value=SimpleNamespace(returncode=0, stdout=xml))
+        self.assertTrue(case.readiness(trigger=False))
+        self.assertEqual(case.guest.call_count, 4)
+        for call in case.guest.call_args_list:
+            self.assertIn('info', call.args[1])
+            self.assertNotIn('--mode=script', call.args[1])
+
     def test_unassigned_is_tolerated_only_after_accepted_activation(self):
         service = Mock()
         state = lambda name: SimpleNamespace(status=SimpleNamespace(value=name))

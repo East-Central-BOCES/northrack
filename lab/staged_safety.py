@@ -23,8 +23,8 @@ from round2_probe import expected, valid_case
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -152,9 +152,9 @@ class Case:
     def hash(self, node, file='record.bin'):
         return self.probe('raw', node=node, file=file)
 
-    def readiness(self):
+    def readiness(self, trigger=True):
         for volume in ('nr99-data', 'nr99-io'):
-            if self.guest(1, ['gluster', '--mode=script', 'volume', 'heal', volume], check=False).returncode:
+            if trigger and self.guest(1, ['gluster', '--mode=script', 'volume', 'heal', volume], check=False).returncode:
                 return False
             for extra in ([], ['split-brain']):
                 result = self.guest(1, ['gluster', '--xml', 'volume', 'heal', volume, 'info', *extra], check=False)
@@ -380,6 +380,20 @@ class Case:
         self.quiescent()
         if not self.readiness():
             raise RuntimeError('Final heal readiness failed')
+        self.verify_contents()
+
+    def automatic_verify(self):
+        self.require('baseline')
+        if not (self.path / 'scenario.result.json').exists():
+            raise RuntimeError('A completed scenario receipt is required')
+        self.quiescent()
+        if not self.readiness(trigger=False):
+            raise RuntimeError('Automatic recovery has not reached connected, zero-backlog, zero-split-brain state')
+        self.verify_contents()
+        self.observations['heal_triggered'] = False
+        self.observations['heal_daemons_restarted'] = False
+
+    def verify_contents(self):
         for file, digest in self.oracle.items():
             if any(self.hash(n, file=file).get('sha256') != digest for n in (1, 2, 3)):
                 raise RuntimeError('An acknowledged write is missing or changed')
