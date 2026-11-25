@@ -1,5 +1,6 @@
 """North31 coordinator: fsync an external witness before accepting each ACK."""
 import json
+import errno
 import os
 from pathlib import Path
 import shlex
@@ -42,7 +43,36 @@ def check_preserved(witness, inventory):
             raise RuntimeError('CRITICAL: witnessed committed transaction missing or changed: ' + str(sequence))
 
 
-def run_test(case):
+def unsafe_quorum_commits(witness, window):
+    return [ack for ack in witness if ack['fsync_started'] > window['second_down'] + 2
+            and ack['fsync_completed'] < window['second_up_requested'] - 2]
+
+
+def exercise_loss(case, directory, atomic, two_node=False, active=lambda: True):
+    window = {'two_node': two_node}
+    with case.fault(3):
+        window['down'] = time.time()
+        atomic(directory / 'fault-window.json', window)
+        time.sleep(45 if two_node else 35)
+        if two_node:
+            if not active():
+                raise Inconclusive('Writer stopped before second fault; no second fault injected')
+            name, mac = case.domain(3)
+            if case.call(['virsh', 'domif-getlink', name, mac]).stdout.split()[-1] != 'down':
+                raise Inconclusive('Node3 link is not down; refusing second fault')
+            with case.fault(2):
+                window['second_down'] = time.time()
+                atomic(directory / 'fault-window.json', window)
+                time.sleep(35)
+                window['second_up_requested'] = time.time()
+            window['second_up'] = time.time()
+        window['up_requested'] = time.time()
+    window['up'] = time.time()
+    atomic(directory / 'fault-window.json', window)
+    return window
+
+
+def run_test(case, two_node=False):
     from staged_safety import CODE, atomic
     state = case.engine('status')
     if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
@@ -59,7 +89,7 @@ def run_test(case):
     directory = case.path / ('continuous-' + trial)
     directory.mkdir(mode=0o700)
     atomic(directory / 'config.json', {'case': case.id, 'trial': trial, 'writer_seconds': 150,
-                                      'outage_seconds': 35, 'before': before})
+                                      'two_node': two_node, 'outage_seconds': 80 if two_node else 35, 'before': before})
     case.observations.update(trial=trial, evidence_directory=str(directory), before=before)
     sent = time.time()
     guest_time = json.loads(case.call(command(case.id, trial, 'clock'), timeout=20).stdout)['time']
@@ -70,7 +100,8 @@ def run_test(case):
     witness = []
     errors = []
     writer_done = []
-    with (directory / 'writer.stderr').open('w') as stderr, (directory / 'witness.jsonl').open('x') as output:
+    io_errors = []
+    with (directory / 'writer.stderr').open('w') as stderr, (directory / 'witness.jsonl').open('x') as output, (directory / 'attempts.jsonl').open('x') as attempts:
         os.fsync(output.fileno())
         fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
         os.fsync(fd)
@@ -81,6 +112,16 @@ def run_test(case):
             try:
                 for line in process.stdout:
                     ack = json.loads(line)
+                    if ack.get('status') == 'BEGIN':
+                        if ack.get('sequence') != len(witness):
+                            raise RuntimeError('Transaction attempt sequence mismatch')
+                        attempts.write(json.dumps(ack) + '\n')
+                        attempts.flush()
+                        os.fsync(attempts.fileno())
+                        continue
+                    if ack.get('status') == 'ERROR':
+                        io_errors.append(ack)
+                        continue
                     if ack.get('status') == 'DONE':
                         writer_done.append(ack)
                         continue
@@ -102,12 +143,22 @@ def run_test(case):
                 if errors or process.poll() is not None or time.monotonic() > deadline:
                     raise Inconclusive('Writer/witness preflight failed; no fault injected: ' + str(errors))
                 time.sleep(0.2)
-            with case.fault(3):
-                down = time.time()
-                atomic(directory / 'fault-window.json', {'down': down})
-                time.sleep(35)
-                up = time.time()
-            atomic(directory / 'fault-window.json', {'down': down, 'up': up})
+            window = exercise_loss(case, directory, atomic, two_node,
+                                   active=lambda: process.poll() is None and not errors and not io_errors)
+            down, up = window['down'], window['up']
+            case.observations['fault_window'] = window
+            if two_node:
+                state = case.engine('status')
+                case.observations['engine_after_restore'] = state
+                if state['vm'] == 'paused':
+                    deadline = time.monotonic() + 120
+                    while not case.readiness(trigger=False):
+                        if time.monotonic() >= deadline:
+                            raise Inconclusive('Links restored but storage is not ready; VM left paused')
+                        time.sleep(5)
+                    case.observations['pause_recovery'] = case.engine('resume-paused')
+                elif state['vm'] != 'up':
+                    raise Inconclusive('Unexpected VM state after restoration: ' + state['vm'])
             try:
                 rc = process.wait(timeout=240)
             except subprocess.TimeoutExpired:
@@ -116,8 +167,8 @@ def run_test(case):
 
             if thread.is_alive():
                 raise Inconclusive('External witness stream did not close')
-            case.observations.update(writer_returncode=rc, witnessed_records=len(witness), witness_errors=errors)
-            atomic(directory / 'writer-outcome.json', {'rc': rc, 'errors': errors, 'done': writer_done})
+            case.observations.update(writer_returncode=rc, witnessed_records=len(witness), witness_errors=errors, io_errors=io_errors)
+            atomic(directory / 'writer-outcome.json', {'rc': rc, 'errors': errors, 'io_errors': io_errors, 'done': writer_done})
             result = case.call(command(case.id, trial, 'verify'), timeout=90)
             inventory = json.loads(result.stdout)
             atomic(directory / 'guest-inventory.json', inventory)
@@ -138,7 +189,22 @@ def run_test(case):
             case.observations['heal_connections_healthy'] = all(len(s['active_clients']) == 6 and all(s['active_clients'].values()) for s in after.values())
             if any('CRITICAL:' in error for error in errors):
                 raise RuntimeError('CRITICAL: application observed unexpected data after fsync')
-            if errors or rc or not writer_done or not during:
+            if two_node:
+                unsafe = unsafe_quorum_commits(witness, window)
+                case.observations['commits_without_quorum'] = unsafe
+                if unsafe:
+                    raise RuntimeError('CRITICAL: new fsynced writes acknowledged with two storage links disconnected')
+                accepted_errors = {errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT}
+                safe_error = rc == 2 and io_errors and all(e.get('errno') in accepted_errors for e in io_errors)
+                if errors or (not safe_error and (rc or not writer_done)):
+                    raise Inconclusive('Witnessed writes preserved but writer outcome requires investigation')
+                blocked = [{'sequence': a['sequence'], 'fsync_seconds': round(a['fsync_completed'] - a['fsync_started'], 3)}
+                           for a in witness if a['fsync_started'] < window['second_down'] and a['fsync_completed'] > window['second_up_requested']]
+                case.observations['fsyncs_spanning_quorum_loss'] = blocked
+                if not blocked and not safe_error and not case.observations.get('pause_recovery'):
+                    raise Inconclusive('No unsafe commits, but no blocked operation or safe error demonstrated')
+                case.observations['quorum_loss_safe_behavior'] = 'explicit_io_error' if safe_error else 'no_new_commit_with_one_reachable_replica'
+            elif errors or io_errors or rc or not writer_done or not during:
                 raise Inconclusive('Witnessed writes preserved, but writer/progress requirements were not met')
             if any(case.path.glob('watchdog-*.json')):
                 raise Inconclusive('Watchdog fired; fault timing uncontrolled')

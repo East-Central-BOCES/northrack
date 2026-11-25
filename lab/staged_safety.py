@@ -24,8 +24,8 @@ from continuous_io import Inconclusive
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'continuous-prepare', 'continuous-write', 'continuous-reboot', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1800, 900, 1200, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'continuous-prepare', 'continuous-write', 'continuous-reboot', 'two-node-write', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1800, 900, 1200, 1200, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -526,6 +526,11 @@ else: raise RuntimeError('Workload not on node1')
         from continuous_io import run_reboot_check
         run_reboot_check(self)
 
+    def two_node_write(self):
+        self.require('continuous-reboot')
+        from continuous_io import run_test
+        run_test(self, two_node=True)
+
 
 def worker(case, step, attempt=1):
     with (ROOT / 'job.lock').open('w') as lock:
@@ -544,7 +549,7 @@ def worker(case, step, attempt=1):
         except Exception as error:
             outcome['error'] = str(error)[-1200:]
         finally:
-            if step in ('scenario', 'control-no-write', 'continuous-write'):
+            if step in ('scenario', 'control-no-write', 'continuous-write', 'two-node-write'):
                 errors = []
                 for node in (2, 3):
                     try:

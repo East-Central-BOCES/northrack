@@ -86,6 +86,50 @@ transactions, injects no network fault, and restarts no storage daemon. It leave
 the workload running on success. No second-node-loss stage starts automatically.
 This is a graceful reboot test, not abrupt power-loss durability certification.
 
+Reboot verification subsequently PASS in 89.3 seconds. Guest boot ID changed;
+all 809 witnessed commits, original payload and 1,800 retained journal entries
+survived; all 18 SHD connections and final heal-info checks were healthy.
+
+### Sequential second-node-loss test
+
+The next separately requested job is `two-node-write` (20-minute service limit).
+It requires the successful reboot receipt and a fresh healthy live baseline.
+A new trial/witness keeps the earlier 809-record evidence unchanged. The writer
+also reports BEGIN attempts separately from fsync ACKs; attempts are not commits.
+
+After ten witnessed commits, isolate node3 storage for 45 seconds. If the writer
+is still alive, verify node3's link is still down, then isolate node2 storage
+for 35 seconds. Restore node2 then node3 before awaiting writer completion.
+Nested fault contexts, the worker's final cleanup, and independently armed
+360-second north31 timers protect both links. No physical link or production
+host is changed. A fired watchdog invalidates timing.
+
+New fsync operations completed wholly inside the one-reachable-replica window
+(excluding two-second timing margins) must not be acknowledged. Such ACKs fail
+the quorum-safety check even if later readback matches. A write started before
+that window may already have replicated, so it is not automatically called an
+unsafe ACK. Every witnessed commit still must match independently reconstructed
+content after restoration. Blocked operations, explicit safe I/O errors, or a
+storage-induced VM pause are acceptable availability failures, recorded as such.
+There must be actual evidence of blocking/errors/pause, not just an empty window.
+
+If Engine reports the lab VM paused after both links return, wait at most two
+minutes for heal-info readiness without restarting storage daemons; then use
+Engine's start action only for the existing paused workload on its active domain
+to resume it. Refuse other states rather than force stopping/restarting the VM.
+This follows the [official oVirt module's paused-VM handling](https://github.com/oVirt/ovirt-ansible-collection/blob/master/plugins/modules/ovirt_vm.py).
+Libvirt's interactive management authentication is not bypassed or changed.
+
+The resulting receipt distinguishes transaction preservation from heal-client
+connection health. No daemon repair runs after the fault; degraded connections
+remain evidence for review. Any unreadable inventory or timeout is inconclusive,
+not proof that data survived. The original payload and journal are also checked.
+
+This tests two overlapping node storage outages with the VM on unaffected node1.
+It does not establish the separate current-plus-online-stale replica scenario,
+which previous natural healing prevented us from reaching. Nor does it certify
+abrupt power-loss durability or the physical redundant network.
+
 ## Earlier round-2 evidence
 
 Bootstrap and preflight subsequently passed. Case

@@ -38,7 +38,7 @@ def activate_ready(service, address, retry_error, deadline, clock=time.monotonic
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['quiesce', 'status', 'maintain-hosts', 'activate-hosts', 'resume'])
+    parser.add_argument('action', choices=['quiesce', 'status', 'maintain-hosts', 'activate-hosts', 'resume', 'resume-paused'])
     args = parser.parse_args()
     if os.geteuid() or socket.gethostname() != 'engine.nr99.test':
         raise SystemExit('Restricted to root on the independent nr99 Engine')
@@ -60,6 +60,18 @@ def main():
         selected = hosts.list(search='cluster=nr99')
         if {h.name: h.address for h in selected} != {f'nr99-node{n}': f'node{n}.nr99.test' for n in (1, 2, 3)}:
             raise RuntimeError('Unexpected cluster host inventory')
+        if args.action == 'resume-paused':
+            service = system.vms_service().vm_service(vms[0].id)
+            if domain.status.value != 'active' or service.get().status.value not in ('paused', 'up'):
+                raise RuntimeError('Only the existing paused workload on active storage may be resumed')
+            if service.get().status.value == 'paused':
+                service.start()
+            for _ in range(90):
+                if service.get().status.value == 'up':
+                    break
+                time.sleep(2)
+            else:
+                raise RuntimeError('Paused workload did not return to UP')
         if args.action in ('maintain-hosts', 'activate-hosts'):
             if vms[0].status.value != 'down' or domain.status.value != 'maintenance':
                 raise RuntimeError('Workload and storage must be quiescent')

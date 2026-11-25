@@ -71,6 +71,7 @@ def main():
         while time.monotonic() < deadline:
             data = record(args.case, args.trial, sequence)
             started = time.time()
+            print(json.dumps({'status': 'BEGIN', 'sequence': sequence, 'time': started}), flush=True)
             try:
                 stream.write(data)
                 stream.flush()

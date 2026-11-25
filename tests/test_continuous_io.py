@@ -3,11 +3,12 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import contextlib
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / 'lab'))
-from continuous_io import check_preserved, check_witness, check_original, load_witness, Inconclusive
+from continuous_io import check_preserved, check_witness, check_original, load_witness, Inconclusive, unsafe_quorum_commits, exercise_loss
 from staged_safety import Inconclusive as RunnerInconclusive
 from vm_transaction import checksum, record, verify_file
 
@@ -16,6 +17,45 @@ TRIAL = 'b' * 32
 
 
 class TransactionTests(unittest.TestCase):
+    def test_quorum_detector_excludes_preexisting_and_restored_writes(self):
+        window = {'second_down': 100, 'second_up_requested': 135}
+        safe = [{'fsync_started': 99, 'fsync_completed': 110},
+                {'fsync_started': 105, 'fsync_completed': 136}]
+        unsafe = {'fsync_started': 105, 'fsync_completed': 120}
+        self.assertEqual(unsafe_quorum_commits(safe, window), [])
+        self.assertEqual(unsafe_quorum_commits(safe + [unsafe], window), [unsafe])
+
+    def test_two_faults_restore_in_reverse_order_on_exception(self):
+        events = []
+        @contextlib.contextmanager
+        def fault(node):
+            events.append(('down', node))
+            try:
+                yield
+            finally:
+                events.append(('up', node))
+        case = SimpleNamespace(fault=fault, domain=lambda _: ('nr99-node3', 'mac'),
+                               call=Mock(return_value=SimpleNamespace(stdout='mac down')))
+        def sleep(seconds):
+            if seconds == 35:
+                raise RuntimeError('simulated worker interruption')
+        with patch('continuous_io.time.sleep', side_effect=sleep):
+            with self.assertRaisesRegex(RuntimeError, 'interruption'):
+                exercise_loss(case, Path('/unused'), Mock(), two_node=True)
+        self.assertEqual(events, [('down', 3), ('down', 2), ('up', 2), ('up', 3)])
+
+    def test_second_fault_is_refused_if_writer_exited(self):
+        events = []
+        @contextlib.contextmanager
+        def fault(node):
+            events.append(node)
+            yield
+        case = SimpleNamespace(fault=fault)
+        with patch('continuous_io.time.sleep'):
+            with self.assertRaisesRegex(Inconclusive, 'no second fault'):
+                exercise_loss(case, Path('/unused'), Mock(), two_node=True, active=lambda: False)
+        self.assertEqual(events, [3])
+
     def test_inconclusive_verdict_uses_one_shared_type(self):
         self.assertIs(RunnerInconclusive, Inconclusive)
 
