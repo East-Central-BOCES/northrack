@@ -23,8 +23,8 @@ from round2_probe import expected, valid_case
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -403,10 +403,54 @@ class Case:
         if not trees[0] == trees[1] == trees[2]:
             raise RuntimeError('Quiescent replica content mismatch')
         self.observations['matching_paths'] = len(trees[0])
+        connections = {}
         for node in (1, 2, 3):
             state = json.loads(self.guest(node, ['python3', str(CODE / 'shd_state.py')]).stdout)
+            connections[str(node)] = state
+            self.observations['heal_clients'] = connections
             if len(state['active_clients']) != 6 or not all(state['active_clients'].values()):
                 raise RuntimeError('Self-heal clients are not all connected')
+
+    def targeted_recover(self):
+        self.require('baseline')
+        self.quiescent()
+        if not self.readiness(trigger=False):
+            raise RuntimeError('State changed: review backlog/split-brain before targeted recovery')
+        before = {}
+        for node in (1, 2, 3):
+            before[str(node)] = json.loads(self.guest(node, ['python3', str(CODE / 'shd_state.py')]).stdout)
+        self.observations['before'] = before
+        expected_disconnected = {'nr99-data-client-2', 'nr99-io-client-2'}
+        for node in (1, 2, 3):
+            flags = before[str(node)]['active_clients']
+            disconnected = {k for k, value in flags.items() if not value}
+            if len(flags) != 6 or disconnected != (set() if node == 1 else expected_disconnected):
+                raise RuntimeError('Connection pattern changed; review before restarting daemons')
+        repairs = {}
+        for node in (2, 3):
+            repairs[str(node)] = json.loads(self.guest(node, ['python3', str(CODE / 'repair_shd.py')]).stdout)
+            self.observations['repairs'] = repairs
+            if not repairs[str(node)]['brick_processes_preserved']:
+                raise RuntimeError('Brick processes changed')
+        deadline = time.monotonic() + 180
+        while True:
+            after = {}
+            for node in (1, 2, 3):
+                result = self.guest(node, ['python3', str(CODE / 'shd_state.py')], check=False)
+                if result.returncode == 0:
+                    after[str(node)] = json.loads(result.stdout)
+            self.observations['after'] = after
+            if '1' in after and after['1']['shd_pids'] != before['1']['shd_pids']:
+                raise RuntimeError('Node1 heal daemon changed unexpectedly')
+            if len(after) == 3 and all(len(s['active_clients']) == 6 and all(s['active_clients'].values()) for s in after.values()):
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Targeted restart did not restore all 18 connections')
+            time.sleep(5)
+        if not self.readiness(trigger=False):
+            raise RuntimeError('Final heal readiness failed after targeted restart')
+        self.verify_contents()
+        self.observations['node1_shd_preserved'] = True
 
     def resume(self):
         self.require('verify')

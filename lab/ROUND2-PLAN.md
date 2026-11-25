@@ -35,6 +35,21 @@ would verify recovery for this run, not answer the untested second-failure case
 or erase the earlier recovery failure. Use the usual `start`/`wait`/`show`
 commands with `--step automatic-verify`.
 
+Automatic verification found 44 matching file/shard paths and no reported heal
+backlog/split-brain, but disconnected SHD clients. Diagnostic capture found
+node1 at 6/6 connections and nodes2/3 each at 4/6, missing both node3 brick
+clients. Node3 brick ports changed; node1 discovered new ports while node2's
+log selected old ports. Evidence is saved under the case's
+`connections-20261125T001846Z` directory and in operator-side artifacts.
+
+The explicitly requested `targeted-recover` stage requires this exact connection
+pattern and zero backlog/split-brain before proceeding. It restarts only nodes2/3
+SHDs using the existing brick-preserving helper, waits up to three minutes for
+all 18 connections, checks node1's SHD PID stayed unchanged, then verifies heal
+status and all acknowledged writes and replica trees. Its service limit is
+25 minutes including checksums. It does not restart the workload or overwrite
+the failed automatic-recovery result.
+
 ## Objective
 
 Test the assumption that losing another current replica while node3 remains

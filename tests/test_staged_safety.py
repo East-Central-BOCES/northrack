@@ -1,4 +1,5 @@
 import errno
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -12,6 +13,39 @@ from round2_engine import activate_ready
 
 
 class SafetyVerdictTests(unittest.TestCase):
+    def test_targeted_recovery_never_restarts_node1(self):
+        case = Case.__new__(Case)
+        case.observations = {}
+        case.require = Mock()
+        case.quiescent = Mock()
+        case.readiness = Mock(return_value=True)
+        case.verify_contents = Mock()
+        repaired = set()
+        def guest(node, argv, **kwargs):
+            if argv[-1].endswith('repair_shd.py'):
+                repaired.add(node)
+                return SimpleNamespace(returncode=0, stdout=json.dumps({'brick_processes_preserved': True}))
+            flags = {f'{volume}-client-{n}': not (node in (2, 3) and node not in repaired and n == 2)
+                     for volume in ('nr99-data', 'nr99-io') for n in range(3)}
+            return SimpleNamespace(returncode=0, stdout=json.dumps({'shd_pids': [100 + node], 'active_clients': flags}))
+        case.guest = Mock(side_effect=guest)
+        case.targeted_recover()
+        self.assertEqual(repaired, {2, 3})
+        case.verify_contents.assert_called_once()
+        self.assertTrue(case.observations['node1_shd_preserved'])
+
+    def test_targeted_recovery_refuses_changed_connection_pattern(self):
+        case = Case.__new__(Case)
+        case.observations = {}
+        case.require = Mock()
+        case.quiescent = Mock()
+        case.readiness = Mock(return_value=True)
+        flags = {f'{volume}-client-{n}': True for volume in ('nr99-data', 'nr99-io') for n in range(3)}
+        case.guest = Mock(return_value=SimpleNamespace(stdout=json.dumps({'shd_pids': [123], 'active_clients': flags})))
+        with self.assertRaisesRegex(RuntimeError, 'Connection pattern changed'):
+            case.targeted_recover()
+        self.assertFalse(any(c.args[1][-1].endswith('repair_shd.py') for c in case.guest.call_args_list))
+
     def test_observation_does_not_trigger_healing(self):
         case = Case.__new__(Case)
         brick = '<brick><status>Connected</status><numberOfEntries>0</numberOfEntries></brick>'
