@@ -63,6 +63,29 @@ This first phase verifies live I/O and readback following a network interruption
 application/database recovery, second-node loss, and abrupt power-loss durability
 are still separate unfinished tests. A network-test PASS does not certify them.
 
+First live-write run evidence (trial `726b30d80d8b4df49a6c4a0f70cfbd73`): all
+809 witnessed commits preserved; no partial tail; original payload and 1,800
+journal entries intact; all 18 SHD clients connected at the final observation.
+Sequence 11's fsync blocked for 36.119 seconds, spanning the 35-second outage,
+and completed approximately 1.123 seconds after the recorded restoration window.
+The writer exited normally with no witness errors. Zero commits completed wholly
+within the outage. This is acceptable fail-stop/stall evidence, not a silent
+write-loss observation. The original FAILED receipt is retained: it reflected
+the harness's outage-progress requirement. Its intended INCONCLUSIVE exception
+was misclassified because script/module imports created distinct exception
+classes; the harness now shares one exception type. No old receipt is rewritten.
+
+The next requested stage is `continuous-reboot` (20-minute service limit):
+validate the independent witness against deterministic expected records, read
+and verify the current transaction file, capture the guest boot ID, gracefully
+stop the workload/deactivate its domain, reactivate/start it, require a changed
+boot ID, and re-read every witnessed transaction plus the original payload and
+journal. Retain pre/post checksum inventories in the existing trial directory,
+and verify heal status and all 18 connections afterward. It writes no new test
+transactions, injects no network fault, and restarts no storage daemon. It leaves
+the workload running on success. No second-node-loss stage starts automatically.
+This is a graceful reboot test, not abrupt power-loss durability certification.
+
 ## Earlier round-2 evidence
 
 Bootstrap and preflight subsequently passed. Case

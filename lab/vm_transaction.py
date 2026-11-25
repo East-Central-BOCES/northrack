@@ -43,7 +43,7 @@ def main():
     if Path.home() != Path('/home/rocky'):
         raise SystemExit('Expected rocky home directory')
     if args.action == 'clock':
-        print(json.dumps({'time': time.time()}), flush=True)
+        print(json.dumps({'time': time.time(), 'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip()}), flush=True)
         return
     directory = Path.home() / 'nr99-continuous' / (args.case + '-' + args.trial)
     path = directory / 'transactions.jsonl'

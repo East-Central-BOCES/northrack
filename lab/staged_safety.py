@@ -20,11 +20,12 @@ import uuid
 import xml.etree.ElementTree as ET
 import shlex
 from round2_probe import expected, valid_case
+from continuous_io import Inconclusive
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'continuous-prepare', 'continuous-write', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1800, 900, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'continuous-prepare', 'continuous-write', 'continuous-reboot', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1800, 900, 1200, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -32,10 +33,6 @@ def attempt_name(step, attempt):
     if not 1 <= attempt <= 9:
         raise ValueError('Attempt must be between 1 and 9')
     return step if attempt == 1 else step + '-attempt' + str(attempt)
-
-
-class Inconclusive(RuntimeError):
-    pass
 
 
 def atomic(path, value):
@@ -524,6 +521,10 @@ else: raise RuntimeError('Workload not on node1')
         self.require('continuous-prepare')
         from continuous_io import run_test
         run_test(self)
+
+    def continuous_reboot(self):
+        from continuous_io import run_reboot_check
+        run_reboot_check(self)
 
 
 def worker(case, step, attempt=1):

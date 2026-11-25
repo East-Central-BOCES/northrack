@@ -12,6 +12,11 @@ from vm_transaction import checksum, record
 ROOT = Path('/var/lib/nr99/round2')
 
 
+class Inconclusive(RuntimeError):
+    """Shared verdict type, including when staged_safety runs as __main__."""
+    pass
+
+
 def command(case, trial, action):
     return ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
             '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=5',
@@ -38,7 +43,7 @@ def check_preserved(witness, inventory):
 
 
 def run_test(case):
-    from staged_safety import CODE, Inconclusive, atomic
+    from staged_safety import CODE, atomic
     state = case.engine('status')
     if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
         raise RuntimeError('Live write test requires VM/domain/all hosts UP')
@@ -108,6 +113,7 @@ def run_test(case):
             except subprocess.TimeoutExpired:
                 raise Inconclusive('Writer did not finish after network restoration; investigate possible I/O stall')
             thread.join(timeout=10)
+
             if thread.is_alive():
                 raise Inconclusive('External witness stream did not close')
             case.observations.update(writer_returncode=rc, witnessed_records=len(witness), witness_errors=errors)
@@ -145,3 +151,76 @@ def run_test(case):
                     process.kill()
                     process.wait(timeout=5)
             thread.join(timeout=10)
+
+
+def load_witness(case):
+    from round2_probe import valid_case
+    receipt = json.loads((case.path / 'continuous-write.result.json').read_text())
+    observations = receipt['observations']
+    if (not observations.get('witnessed_records_preserved') or observations.get('writer_returncode') != 0
+            or observations.get('witness_errors') or not observations.get('original_payload_preserved')):
+        raise RuntimeError('Review live-write evidence before reboot verification')
+    trial = valid_case(observations['trial'])
+    directory = case.path / ('continuous-' + trial)
+    if str(directory) != observations['evidence_directory']:
+        raise RuntimeError('Trial evidence directory mismatch')
+    witness = [json.loads(line) for line in (directory / 'witness.jsonl').read_text().splitlines()]
+    if not witness or len(witness) != observations['witnessed_records']:
+        raise RuntimeError('Witness receipt/count mismatch')
+    for sequence, ack in enumerate(witness):
+        check_witness(ack, case.id, trial, sequence)
+    return trial, directory, witness
+
+
+def check_original(inventory):
+    expected = '5d654a1dc48fda04b99586e20c6307d7cb7ef3f802525e062cd75e458a1522f1'
+    if (inventory['original_payload_sha256'] != expected or not inventory['original_payload_matches_state']
+            or not inventory['original_journal_contiguous']):
+        raise RuntimeError('CRITICAL: original payload or retained journal changed')
+
+
+def run_reboot_check(case):
+    from staged_safety import CODE, atomic
+    trial, directory, witness = load_witness(case)
+    state = case.engine('status')
+    if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
+        raise RuntimeError('Reboot verification requires healthy live VM/domain/hosts')
+    if not case.readiness(trigger=False):
+        raise RuntimeError('Heal readiness failed before reboot')
+    before = json.loads(case.call(command(case.id, trial, 'clock'), timeout=20).stdout)
+    inventory = json.loads(case.call(command(case.id, trial, 'verify'), timeout=90).stdout)
+    check_preserved(witness, inventory)
+    check_original(inventory)
+    atomic(directory / 'pre-reboot-inventory.json', inventory)
+    case.observations.update(trial=trial, witnessed_records=len(witness), boot_id_before=before['boot_id'])
+    case.engine('quiesce')
+    case.quiescent()
+    case.observations['engine'] = case.engine('resume')
+    state = case.observations['engine']
+    if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
+        raise RuntimeError('VM/domain/hosts did not return after clean restart')
+    deadline = time.monotonic() + 180
+    while True:
+        result = case.call(command(case.id, trial, 'clock'), timeout=12, check=False)
+        if result.returncode == 0:
+            after = json.loads(result.stdout)
+            if after['boot_id'] != before['boot_id']:
+                break
+        if time.monotonic() >= deadline:
+            raise Inconclusive('VM did not regain SSH with a new boot ID')
+        time.sleep(5)
+    inventory = json.loads(case.call(command(case.id, trial, 'verify'), timeout=90).stdout)
+    atomic(directory / 'post-reboot-inventory.json', inventory)
+    check_preserved(witness, inventory)
+    check_original(inventory)
+    case.observations.update(boot_id_after=after['boot_id'], witnessed_records_preserved=True,
+                             original_payload_preserved=True, original_journal_entries=inventory['original_journal_entries'],
+                             post_reboot_verified=True, reboot_type='graceful_shutdown_and_start')
+    connections = {}
+    for node in (1, 2, 3):
+        connections[str(node)] = json.loads(case.guest(node, ['python3', str(CODE / 'shd_state.py')]).stdout)
+    case.observations['heal_clients'] = connections
+    if not all(len(s['active_clients']) == 6 and all(s['active_clients'].values()) for s in connections.values()):
+        raise RuntimeError('Post-reboot heal connections are not all healthy')
+    if not case.readiness(trigger=False):
+        raise RuntimeError('Post-reboot heal readiness failed')

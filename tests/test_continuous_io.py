@@ -3,9 +3,12 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / 'lab'))
-from continuous_io import check_preserved, check_witness
+from continuous_io import check_preserved, check_witness, check_original, load_witness, Inconclusive
+from staged_safety import Inconclusive as RunnerInconclusive
 from vm_transaction import checksum, record, verify_file
 
 CASE = 'a' * 32
@@ -13,6 +16,36 @@ TRIAL = 'b' * 32
 
 
 class TransactionTests(unittest.TestCase):
+    def test_inconclusive_verdict_uses_one_shared_type(self):
+        self.assertIs(RunnerInconclusive, Inconclusive)
+
+    def test_reboot_witness_is_validated_independently_and_count_must_match(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            directory = path / ('continuous-' + TRIAL)
+            directory.mkdir()
+            ack = {'status': 'ACK', 'sequence': 0, 'sha256': checksum(record(CASE, TRIAL, 0))}
+            (directory / 'witness.jsonl').write_text(json.dumps(ack) + '\n')
+            observations = {'trial': TRIAL, 'evidence_directory': str(directory), 'witnessed_records': 1,
+                            'witnessed_records_preserved': True, 'writer_returncode': 0, 'witness_errors': [],
+                            'original_payload_preserved': True}
+            receipt = path / 'continuous-write.result.json'
+            receipt.write_text(json.dumps({'observations': observations}))
+            case = SimpleNamespace(path=path, id=CASE)
+            self.assertEqual(load_witness(case)[2], [ack])
+            (directory / 'witness.jsonl').write_text(json.dumps(dict(ack, sha256='bad')) + '\n')
+            with self.assertRaisesRegex(RuntimeError, 'checksum'):
+                load_witness(case)
+            (directory / 'witness.jsonl').write_text('')
+            with self.assertRaisesRegex(RuntimeError, 'count mismatch'):
+                load_witness(case)
+
+    def test_original_payload_is_compared_with_the_independent_saved_hash(self):
+        inventory = {'original_payload_sha256': 'changed', 'original_payload_matches_state': True,
+                     'original_journal_contiguous': True}
+        with self.assertRaisesRegex(RuntimeError, 'CRITICAL'):
+            check_original(inventory)
+
     def test_witness_rejects_wrong_sequence_and_false_checksums(self):
         ack = {'status': 'ACK', 'sequence': 0, 'sha256': checksum(record(CASE, TRIAL, 0))}
         check_witness(ack, CASE, TRIAL, 0)
