@@ -50,6 +50,25 @@ status and all acknowledged writes and replica trees. Its service limit is
 25 minutes including checksums. It does not restart the workload or overwrite
 the failed automatic-recovery result.
 
+Targeted recovery PASS (37.3 seconds): only nodes2/3 SHDs restarted, all brick
+processes preserved, node1 SHD PID unchanged, all 18 client connections restored,
+all 44 file/shard paths matched, acknowledged canary preserved, and heal
+backlog/split-brain checks passed. This verifies the scoped manual workaround
+for this run. Automatic reconnect remains a failed acceptance condition; the
+second-current-node-loss safety case remains INCONCLUSIVE/unexecuted.
+
+`resume` may follow the combined verification in a successful `targeted-recover`
+receipt, or the original separate `verify` stage. It rechecks quiescence,
+heal-info and all connections before activating the domain and starting the VM.
+After its operator-reported completion, perform one original-payload checksum
+check via the existing Mac SSH identity. That identity is not copied to north31
+and the dedicated round-2 key is not authorized inside the nested workload.
+Compare `/home/rocky/nr99-acceptance/payload` with the original SHA-256 in
+`state.json`; also check the retained journal's continuity. The old journal
+writer is finished and the VM has intentionally rebooted, so neither an active
+writer nor the original boot ID is expected. Do not regenerate the payload or
+overwrite the original oracle.
+
 ## Objective
 
 Test the assumption that losing another current replica while node3 remains

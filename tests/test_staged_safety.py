@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -13,6 +14,22 @@ from round2_engine import activate_ready
 
 
 class SafetyVerdictTests(unittest.TestCase):
+    def test_resume_refuses_newly_disconnected_heal_clients(self):
+        case = Case.__new__(Case)
+        case.observations = {}
+        case.require = Mock()
+        case.quiescent = Mock()
+        case.readiness = Mock(return_value=True)
+        case.engine = Mock()
+        flags = {f'{volume}-client-{n}': n != 2 for volume in ('nr99-data', 'nr99-io') for n in range(3)}
+        case.guest = Mock(return_value=SimpleNamespace(stdout=json.dumps({'active_clients': flags})))
+        with tempfile.TemporaryDirectory() as directory:
+            case.path = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, 'Heal clients disconnected'):
+                case.resume()
+        case.require.assert_called_once_with('targeted-recover')
+        case.engine.assert_not_called()
+
     def test_targeted_recovery_never_restarts_node1(self):
         case = Case.__new__(Case)
         case.observations = {}

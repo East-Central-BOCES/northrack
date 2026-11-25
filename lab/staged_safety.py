@@ -453,7 +453,17 @@ class Case:
         self.observations['node1_shd_preserved'] = True
 
     def resume(self):
-        self.require('verify')
+        if (self.path / 'verify.result.json').exists():
+            self.require('verify')
+        else:
+            self.require('targeted-recover')
+        self.quiescent()
+        if not self.readiness(trigger=False):
+            raise RuntimeError('Heal readiness changed before workload restart')
+        for node in (1, 2, 3):
+            state = json.loads(self.guest(node, ['python3', str(CODE / 'shd_state.py')]).stdout)
+            if len(state['active_clients']) != 6 or not all(state['active_clients'].values()):
+                raise RuntimeError('Heal clients disconnected before workload restart')
         self.observations['engine'] = self.engine('resume')
         if self.observations['engine']['vm'] != 'up' or self.observations['engine']['storage'] != 'active':
             raise RuntimeError('Workload was not restored')
