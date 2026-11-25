@@ -69,6 +69,26 @@ writer is finished and the VM has intentionally rebooted, so neither an active
 writer nor the original boot ID is expected. Do not regenerate the payload or
 overwrite the original oracle.
 
+Resume subsequently PASS: workload UP, data domain ACTIVE, all hosts UP. The
+operator-side read verified the original 16 MiB payload SHA-256
+`5d654a1dc48fda04b99586e20c6307d7cb7ef3f802525e062cd75e458a1522f1`
+unchanged and all 1,800 journal entries contiguous.
+
+The next requested diagnostic is `control-no-write`: quiesce the workload,
+verify healthy connections and all replica content, release canary mounts,
+disconnect node3 storage for 35 seconds with the same independent watchdog,
+restore it, allow a fixed 60-second observation window, and capture all daemon
+PIDs/connections before verifying heal-info and content again. It issues no
+writes during the outage, no heal triggers, and no daemon restarts. Both links
+are restored on exit; workload remains quiescent for result review. Its limit
+is 30 minutes including checksums and graceful quiescence.
+
+This is a test of recurrence after manual recovery, not a clean isolation of
+write effects: nodes2/3 now run separate per-volume SHDs whereas their original
+shared SHDs were replaced. Before/after PIDs and connection maps are retained.
+Existing cold checkpoints and all previous receipts remain intact; no snapshot
+rollback or reimaging is performed. A failure preserves evidence before repair.
+
 ## Objective
 
 Test the assumption that losing another current replica while node3 remains

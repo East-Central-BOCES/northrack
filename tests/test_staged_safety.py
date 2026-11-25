@@ -4,8 +4,9 @@ from pathlib import Path
 import sys
 import unittest
 import tempfile
+import contextlib
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / 'lab'))
 from staged_safety import Case, Inconclusive, arm_then_down, classify, attempt_name
@@ -14,6 +15,30 @@ from round2_engine import activate_ready
 
 
 class SafetyVerdictTests(unittest.TestCase):
+    def test_no_write_control_uses_one_guarded_fault_and_no_heal_trigger(self):
+        case = Case.__new__(Case)
+        case.observations = {}
+        case.require = Mock()
+        case.quiescent = Mock()
+        case.engine = Mock()
+        case.readiness = Mock(return_value=True)
+        case.probe = Mock()
+        flags = {f'{volume}-client-{n}': True for volume in ('nr99-data', 'nr99-io') for n in range(3)}
+        state = {'shd_pids': [123], 'active_clients': flags}
+        case.guest = Mock(return_value=SimpleNamespace(stdout=json.dumps(state)))
+        def verify():
+            case.observations['heal_clients'] = {'1': state, '2': state, '3': state}
+        case.verify_contents = Mock(side_effect=verify)
+        case.fault = Mock(side_effect=lambda _: contextlib.nullcontext())
+        with tempfile.TemporaryDirectory() as directory, patch('staged_safety.time.sleep') as sleep:
+            case.path = Path(directory)
+            case.control_no_write()
+        case.fault.assert_called_once_with(3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [35, 60])
+        self.assertTrue(all(c.kwargs == {'trigger': False} for c in case.readiness.call_args_list))
+        self.assertTrue(all(c.args[0] in ('unmount', 'legacy-unmount') for c in case.probe.call_args_list))
+        self.assertTrue(all(c.args[1][-1].endswith('shd_state.py') for c in case.guest.call_args_list))
+
     def test_resume_refuses_newly_disconnected_heal_clients(self):
         case = Case.__new__(Case)
         case.observations = {}

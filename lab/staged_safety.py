@@ -23,8 +23,8 @@ from round2_probe import expected, valid_case
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -468,6 +468,33 @@ class Case:
         if self.observations['engine']['vm'] != 'up' or self.observations['engine']['storage'] != 'active':
             raise RuntimeError('Workload was not restored')
 
+    def control_no_write(self):
+        self.require('targeted-recover')
+        self.require('resume')
+        self.engine('quiesce')
+        self.quiescent()
+        if not self.readiness(trigger=False):
+            raise RuntimeError('Control requires healthy replicas before fault injection')
+        self.verify_contents()
+        self.observations['before'] = self.observations.pop('heal_clients')
+        for client in ('existing', 'fresh'):
+            self.probe('unmount', client=client, timeout=25)
+        self.probe('legacy-unmount', timeout=25)
+        self.observations.update(outage_seconds=35, settle_seconds=60,
+                                 writes_during_outage=False, heal_triggered=False)
+        with self.fault(3):
+            time.sleep(35)
+        time.sleep(60)  # Fixed observation window; no heal triggers or daemon restarts.
+        after = {}
+        for node in (1, 2, 3):
+            after[str(node)] = json.loads(self.guest(node, ['python3', str(CODE / 'shd_state.py')]).stdout)
+        self.observations['after'] = after
+        if any(self.path.glob('watchdog-*.json')):
+            raise Inconclusive('A restoration watchdog fired; timing was not controlled')
+        if not self.readiness(trigger=False):
+            raise RuntimeError('Control did not recover heal readiness')
+        self.verify_contents()
+
 
 def worker(case, step, attempt=1):
     with (ROOT / 'job.lock').open('w') as lock:
@@ -486,7 +513,7 @@ def worker(case, step, attempt=1):
         except Exception as error:
             outcome['error'] = str(error)[-1200:]
         finally:
-            if step == 'scenario':
+            if step in ('scenario', 'control-no-write'):
                 errors = []
                 for node in (2, 3):
                     try:
