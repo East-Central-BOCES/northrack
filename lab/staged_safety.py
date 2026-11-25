@@ -23,8 +23,8 @@ from round2_probe import expected, valid_case
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'continuous-prepare', 'continuous-write', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1800, 900, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -411,7 +411,7 @@ class Case:
             if len(state['active_clients']) != 6 or not all(state['active_clients'].values()):
                 raise RuntimeError('Self-heal clients are not all connected')
 
-    def targeted_recover(self):
+    def targeted_recover(self, expected_disconnected=None):
         self.require('baseline')
         self.quiescent()
         if not self.readiness(trigger=False):
@@ -420,7 +420,8 @@ class Case:
         for node in (1, 2, 3):
             before[str(node)] = json.loads(self.guest(node, ['python3', str(CODE / 'shd_state.py')]).stdout)
         self.observations['before'] = before
-        expected_disconnected = {'nr99-data-client-2', 'nr99-io-client-2'}
+        if expected_disconnected is None:
+            expected_disconnected = {'nr99-data-client-2', 'nr99-io-client-2'}
         for node in (1, 2, 3):
             flags = before[str(node)]['active_clients']
             disconnected = {k for k, value in flags.items() if not value}
@@ -476,6 +477,7 @@ class Case:
         if not self.readiness(trigger=False):
             raise RuntimeError('Control requires healthy replicas before fault injection')
         self.verify_contents()
+
         self.observations['before'] = self.observations.pop('heal_clients')
         for client in ('existing', 'fresh'):
             self.probe('unmount', client=client, timeout=25)
@@ -496,6 +498,34 @@ class Case:
         self.verify_contents()
 
 
+    def continuous_prepare(self):
+        previous = json.loads((self.path / 'control-no-write.result.json').read_text())
+        if previous['status'] != 'FAILED' or previous.get('error') != 'Self-heal clients are not all connected':
+            raise RuntimeError('Review prerequisite evidence before continuous-write preparation')
+        self.quiescent()
+        self.targeted_recover(expected_disconnected={'nr99-io-client-2'})
+        self.observations['engine'] = self.engine('resume')
+        if self.observations['engine']['vm'] != 'up' or self.observations['engine']['storage'] != 'active':
+            raise RuntimeError('Workload did not start')
+        xml_code = """import pathlib,xml.etree.ElementTree as E
+for p in pathlib.Path('/run/libvirt/qemu').glob('*.xml'):
+ r=E.parse(p).getroot(); d=r if r.tag=='domain' else r.find('domain')
+ if d is not None and d.findtext('name')=='nr99-workload':
+  print(E.tostring(d,encoding='unicode')); break
+else: raise RuntimeError('Workload not on node1')
+"""
+        xml = ET.fromstring(self.guest(1, ['python3', '-c', xml_code]).stdout)
+        drivers = [dict(d.find('driver').attrib) for d in xml.findall("devices/disk[@device='disk']")]
+        self.observations['disk_drivers'] = drivers
+        if not drivers or any(d.get('cache') != 'none' or d.get('error_policy') != 'stop' for d in drivers):
+            raise RuntimeError('VM disk cache/error policy differs from production; no fault authorized by this stage')
+
+    def continuous_write(self):
+        self.require('continuous-prepare')
+        from continuous_io import run_test
+        run_test(self)
+
+
 def worker(case, step, attempt=1):
     with (ROOT / 'job.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -513,7 +543,7 @@ def worker(case, step, attempt=1):
         except Exception as error:
             outcome['error'] = str(error)[-1200:]
         finally:
-            if step in ('scenario', 'control-no-write'):
+            if step in ('scenario', 'control-no-write', 'continuous-write'):
                 errors = []
                 for node in (2, 3):
                     try:

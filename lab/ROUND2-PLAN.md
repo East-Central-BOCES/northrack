@@ -1,9 +1,69 @@
 # Round 2: operator-paced stale-replica safety test
 
-Prepared 2026-11-24. **Native validation in progress; no fault scenario has run.**
+Prepared 2026-11-24; updated 2026-11-25. **Native validation in progress.**
 Local unit tests and syntax checks have passed. The installed systemd version
 (255) and Gluster status XML layout were checked through read-only commands.
 Native bootstrap and stage-by-stage review remain required.
+
+## Continuous in-VM write test (2026-11-25)
+
+Production read-only inspection found all 19 attached disks across 12 running
+VMs on north33/34/36 using `cache=none`, `error_policy=stop`, `io=threads`.
+These are observed effective settings, not a claim that every value was
+inherited from an oVirt default. No production setting was changed.
+
+The no-write control subsequently FAILED: node3's I/O-brick heal clients on
+nodes2/3 remained disconnected; the data-volume clients recovered. All 44
+paths still matched. No outage write is necessary to trigger this reconnect
+failure, and per-volume SHDs do not prevent it.
+
+The requested `continuous-prepare` restores the known failed I/O client pattern
+with the existing targeted helper, verifies all 18 connections and 44 paths,
+resumes the workload, and checks its effective disk policies against production.
+It passed in 90.4 seconds; the lab VM uses the same three settings.
+
+`continuous-write` executes the following single-node network-fault experiment:
+
+1. Recheck VM/domain/hosts, zero backlog/split-brain, all 18 connections, guest
+   identity and clock alignment. Require ten valid independently witnessed
+   commits before fault injection. A new UUID trial keeps earlier evidence.
+2. Inside the VM, append deterministic numbered approximately 4 KiB records for
+   150 seconds. Flush and fsync each record; check read-after-fsync; only then
+   emit its sequence and checksum over a dedicated management SSH connection.
+   Parent directories are fsynced when the new transaction file is created.
+3. North31 validates each ACK against independently generated expected content,
+   appends it to a private witness journal on north31's own filesystem, and
+   fsyncs that journal. The witness is outside Gluster and survives guest loss.
+4. Disconnect node3 storage for 35 seconds under the independent restoration
+   timer. Continue writing through node1 throughout; restore automatically.
+   No second-node fault or daemon repair occurs in this job.
+5. Read back the entire transaction file, check order/content and every
+   witnessed ACK. Valid extra unwitnessed records or an unwitnessed partial
+   tail are not automatically called data loss. Missing or altered witnessed
+   records, unexpected complete record content, or wrong read-after-fsync
+   results are failures. Timeouts/uncertain progress are INCONCLUSIVE.
+6. Verify the original 16 MiB payload against the previously saved SHA and the
+   original 1,800 journal entries. Report heal connections separately; a
+   write-integrity PASS does not imply automatic healing recovered.
+
+The dedicated root-only north31 key's public half is authorized for the named
+`rocky` user inside this disposable VM, restricted to source `172.31.231.1`.
+The private half stays on north31; no Mac key is copied. Guest scripts live at
+`/home/rocky/nr99-round2-code`; original payload/oracle files are never modified.
+Remove this lab key entry when retiring the test harness.
+
+The service limit is 15 minutes. North31 retains trial config, fault timestamps,
+external witness, writer stderr/outcome and guest checksum inventory under
+`continuous-TRIAL_UUID`. Results explicitly report the number of commits wholly
+inside the outage (with two-second timestamp margins) and whether those records
+were preserved. Clock uncertainty refuses fault injection.
+
+This first phase verifies live I/O and readback following a network interruption.
+`post_reboot_verified=false` remains explicit: witness verification after reboot,
+application/database recovery, second-node loss, and abrupt power-loss durability
+are still separate unfinished tests. A network-test PASS does not certify them.
+
+## Earlier round-2 evidence
 
 Bootstrap and preflight subsequently passed. Case
 `376f5ef9443b4ae88b995c143e6504d6` created and verified all nine cold snapshots
