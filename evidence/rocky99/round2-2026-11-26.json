@@ -1,0 +1,123 @@
+{
+  "recorded_on": "2026-11-26",
+  "timezone": "America/Denver",
+  "scope": "Disposable north31 nr99 VM lab; no production fault injection",
+  "case": "376f5ef9443b4ae88b995c143e6504d6",
+  "runner_revision": "f1a6d04",
+  "raw_evidence": {
+    "workspace_path": "artifacts/northrack/round2/closeout-20261126/case-evidence.tar.gz",
+    "sha256": "83f7430b70766c05bd8516c78a5eff1edd73f1b828beeb354bb47de72299eda2"
+  },
+  "environment": {
+    "rocky": "9.9",
+    "gluster": "11.1-1.el9s",
+    "replicas": 3,
+    "client_quorum": "auto",
+    "server_quorum_ratio": "51%",
+    "vm_disk_cache": "none",
+    "vm_disk_error_policy": "stop",
+    "vm_disk_io": "threads"
+  },
+  "receipt_outcomes": {
+    "baseline": {
+      "status": "PASS",
+      "error": null,
+      "elapsed_seconds": 19.0
+    },
+    "scenario": {
+      "status": "INCONCLUSIVE",
+      "error": "Node3 is not demonstrably stale; no second fault injected",
+      "elapsed_seconds": 80.9
+    },
+    "targeted-recover": {
+      "status": "PASS",
+      "error": null,
+      "elapsed_seconds": 37.3
+    },
+    "control-no-write": {
+      "status": "FAILED",
+      "error": "Self-heal clients are not all connected",
+      "elapsed_seconds": 184.2
+    },
+    "continuous-prepare": {
+      "status": "PASS",
+      "error": null,
+      "elapsed_seconds": 90.4
+    },
+    "continuous-write": {
+      "status": "FAILED",
+      "error": "Witnessed writes preserved, but writer/progress requirements were not met",
+      "elapsed_seconds": 161.4
+    },
+    "continuous-reboot": {
+      "status": "PASS",
+      "error": null,
+      "elapsed_seconds": 89.3
+    },
+    "two-node-write": {
+      "status": "INCONCLUSIVE",
+      "error": "Unexpected VM state after restoration: not_responding",
+      "elapsed_seconds": 90.8
+    },
+    "two-node-recover-reboot": {
+      "status": "FAILED",
+      "error": "ssh -T -o: Launching heal operation to perform full self heal on volume nr99-data has been unsuccessful:\nStaging failed on 172.31.232.13. Error: Self-heal daemon is not running. Check self-heal daemon log file.\n",
+      "elapsed_seconds": 57.4
+    },
+    "two-node-recover-reboot-attempt2": {
+      "status": "PASS",
+      "error": null,
+      "elapsed_seconds": 93.9
+    }
+  },
+  "single_node_write": {
+    "witnessed_commits": 809,
+    "preserved_before_and_after_clean_restart": true,
+    "fsync_stall_seconds": 36.119,
+    "outage_seconds": 35,
+    "commits_wholly_inside_outage": 0,
+    "raw_failure_label_is_not_a_data_loss_finding": true
+  },
+  "two_node_write": {
+    "node3_isolated_before_node2_seconds": 45,
+    "overlap_seconds": 35,
+    "witnessed_commits": 11,
+    "records_read_back_before_repair": 12,
+    "extra_unwitnessed_complete_records": 1,
+    "witnessed_commits_without_quorum": 0,
+    "heal_clients_connected_before_repair": 11,
+    "heal_clients_expected": 18,
+    "initial_test_verdict": "INCONCLUSIVE; transient VM not_responding; readback completed separately"
+  },
+  "final_recovery": {
+    "result": "PASS",
+    "elapsed_seconds": 93.9,
+    "witnessed_two_node_commits_preserved": 11,
+    "earlier_commits_preserved": 809,
+    "replica_paths_matching": 44,
+    "replica_comparison_while_vm_down": true,
+    "heal_clients_connected": 18,
+    "heal_backlog_and_split_brain_checks": "passed",
+    "new_boot_id_confirmed": true,
+    "original_payload_preserved": true,
+    "journal_entries_contiguous": 1800,
+    "workload": "up",
+    "storage_domain": "active",
+    "hosts_up": 3,
+    "daemon_restarts_repeated_in_continuation": false
+  },
+  "conclusion": "No observed loss or alteration of witnessed fsync commits in exercised failures. Manual recovery verified; automatic heal reconnection remains failed. Not a universal durability guarantee.",
+  "boundary": "Platform must honor guest flush/durability requests; guest OS and applications must issue them correctly. An additional application/database test is not a required gate for this deployment project.",
+  "open_completion_requirements": [
+    "Monitoring integration and alert/recovery tests on the operator-selected system",
+    "Reviewed operational recovery runbook and operator-accepted disposition of the automatic-reconnect defect",
+    "MAAS end-to-end acceptance, including functional DHCP-to-DNS validation",
+    "Verified off-host recovery exports before physical reimaging"
+  ],
+  "unproven_limits": [
+    "Online-but-stale replica plus another current replica lost",
+    "Abrupt physical power loss, controller/disk cache durability",
+    "Failure behavior across independent physical servers and the actual redundant network"
+  ],
+  "deployment_gate": "Automatic recovery gate remains failed. No waiver, production promotion or physical reimage authorized by this results record."
+}

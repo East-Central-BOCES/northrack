@@ -33,10 +33,13 @@ disk. Do not treat installer creation as installation acceptance.
 
 ## Gates, in order
 
-The next safety round uses the [operator-paced round-2 plan](ROUND2-PLAN.md).
-Its draft runner starts one detached job at a time; the operator confirms
-completion before a single result read and the next step. No round-2 fault
-test has been executed yet.
+The [operator-paced round-2 plan](ROUND2-PLAN.md) has now been exercised.
+The runner starts one detached job at a time; the operator confirms completion
+before a single result read and the next step. The [2026-11-26 closeout](../docs/round2-results.md)
+records preserved witnessed commits through network faults, manual replica
+recovery and clean VM restarts. Automatic heal reconnection remains failed;
+monitoring and operational handoff remain outstanding. No application/database
+test is added as a required deployment gate.
 
 1. **RPM verification:** use `tools/verify-rocky9-rpms.sh host OUTPUT` and
    `engine OUTPUT` inside separate clean acceptance guests. Record complete
@@ -57,6 +60,9 @@ test has been executed yet.
    and loss of two replicas. Expect one-node tolerance, write rejection on
    quorum loss, complete healing after restoration, unchanged checksums, and
    no split-brain. Timing measurements are observations, not production SLAs.
+   Current disposition: witnessed commit preservation/manual recovery verified,
+   but automatic reconnect is not accepted. See the closeout for limits and
+   the still-open fix or explicit operational-acceptance decision.
 5. **MAAS end-to-end:** use `rocky9-9-packer-20261117` and a pinned provisioning
    commit. Prove publication of a fresh DHCP hostname into authoritative DNS
    before PXE acceptance. MAAS 3.6.6 currently lacks the expected DHCP lease
@@ -77,7 +83,11 @@ test has been executed yet.
    or stalled healing. Keep incidents open until recovery is verified, and
    document the operator recovery procedure. The operator deferred selecting
    and integrating their existing monitoring platform on 2026-11-24; this
-   requirement remains outstanding.
+   requirement remains outstanding. Include active SHD client connections even
+   when the workload is UP and reported backlog is zero; derive expectations
+   from volume topology. Define and test delivery, stalled-progress thresholds,
+   incident clearance and verified recovery notification. Detailed acceptance
+   criteria are in the closeout's monitoring section; no integration is claimed.
 
 | Role | Original device | WWN | Data mount |
 | --- | --- | --- | --- |

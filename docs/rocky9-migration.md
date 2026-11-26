@@ -17,6 +17,25 @@ failed-heal alerts, verified recovery notification, and an operator recovery
 procedure. On 2026-11-24 the operator deferred the monitoring-platform details
 for later work. This remains an outstanding completion requirement.
 
+## Round-2 closeout — 2026-11-26
+
+The [results and next-work options](round2-results.md) and
+[machine-readable evidence](../evidence/rocky99/round2-2026-11-26.json)
+record the completed network-failure tests. All 809 earlier witnessed commits
+and all 11 two-node-test witnessed commits survived manual replica repair and
+clean VM restart. All 44 file/shard paths matched while quiescent, all 18 heal
+clients were connected, and final heal-readiness checks passed. No loss or
+alteration of witnessed durable commits was observed in those tests.
+
+Automatic heal reconnect remains failed; monitoring integration, alert/recovery
+tests and the reviewed operational runbook remain completion requirements.
+Additional database/application crash testing is not a required deployment gate:
+the platform/guest durability responsibility boundary is recorded in the closeout.
+This does not certify physical power-loss durability or the online-but-stale
+replica case, and grants no storage-gate waiver or production promotion.
+MAAS/DNS readiness work and storage operational handoff are the next options;
+physical reimaging remains behind acceptance and verified off-host backups.
+
 ## Execution record — 2026-11-19
 
 - North31's missing VM utilities were installed using a separate apt metadata

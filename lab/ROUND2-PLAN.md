@@ -1,6 +1,9 @@
 # Round 2: operator-paced stale-replica safety test
 
 Prepared 2026-11-24; updated 2026-11-25. **Native validation in progress.**
+The [2026-11-26 closeout](../docs/round2-results.md) records the final recovery
+PASS, monitoring completion requirement, scope limits and next-work choices.
+Historical failed and inconclusive receipts below remain unchanged.
 Local unit tests and syntax checks have passed. The installed systemd version
 (255) and Gluster status XML layout were checked through read-only commands.
 Native bootstrap and stage-by-stage review remain required.
