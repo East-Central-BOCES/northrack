@@ -24,8 +24,8 @@ from continuous_io import Inconclusive
 
 ROOT = Path('/var/lib/nr99/round2')
 CODE = ROOT / 'code'
-STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'continuous-prepare', 'continuous-write', 'continuous-reboot', 'two-node-write', 'recover', 'verify', 'resume')
-LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1800, 900, 1200, 1200, 1500, 1200, 600)))
+STEPS = ('checkpoint', 'checkpoint-finish', 'baseline', 'scenario', 'automatic-verify', 'targeted-recover', 'control-no-write', 'continuous-prepare', 'continuous-write', 'continuous-reboot', 'two-node-write', 'two-node-recover-reboot', 'recover', 'verify', 'resume')
+LIMITS = dict(zip(STEPS, (900, 900, 300, 900, 1200, 1500, 1800, 1800, 900, 1200, 1200, 2100, 1500, 1200, 600)))
 REJECTED = (errno.EIO, errno.EROFS, errno.ENOTCONN, errno.ETIMEDOUT)
 
 
@@ -363,7 +363,10 @@ class Case:
         for client in ('existing', 'fresh'):
             self.probe('unmount', client=client, timeout=25)
         for n in (1, 2, 3):
-            self.guest(n, ['python3', str(CODE / 'repair_shd.py')])
+            repair = json.loads(self.guest(n, ['python3', str(CODE / 'repair_shd.py')]).stdout)
+            self.observations.setdefault('repairs', {})[str(n)] = repair
+            if not repair.get('brick_processes_preserved'):
+                raise RuntimeError('Brick process preservation check failed')
         for volume in ('nr99-data', 'nr99-io'):
             self.guest(1, ['gluster', '--mode=script', 'volume', 'heal', volume, 'full'])
         deadline = time.monotonic() + 900
@@ -530,6 +533,11 @@ else: raise RuntimeError('Workload not on node1')
         self.require('continuous-reboot')
         from continuous_io import run_test
         run_test(self, two_node=True)
+
+    def two_node_recover_reboot(self):
+        self.require('continuous-reboot')
+        from continuous_io import run_reboot_check
+        run_reboot_check(self, source='two-node-write', repair=True)
 
 
 def worker(case, step, attempt=1):

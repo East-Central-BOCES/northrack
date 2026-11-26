@@ -130,6 +130,45 @@ It does not establish the separate current-plus-online-stale replica scenario,
 which previous natural healing prevented us from reaching. Nor does it certify
 abrupt power-loss durability or the physical redundant network.
 
+### Recovery and restart after the two-node test
+
+The two-node job reached both fault windows and restored both links without a
+watchdog firing, then stopped INCONCLUSIVE on Engine's transient
+`not_responding` VM / `unknown` storage state. The control connection was closed
+before its planned post-fault readback. Subsequent read-only inspection found
+VM/domain/all hosts recovered, 11 external witnessed commits, 12 BEGIN attempts,
+and no witnessed quorum-window commits.
+
+The separately saved recovered comparison confirmed all 11 commits unchanged,
+12 valid complete guest records with no partial tail, unchanged original payload
+and 1,800 journal entries. The extra unwitnessed record is permissible. Only
+11/18 SHD connections were healthy and heal readiness failed. On the next
+read-only preflight the VM-data volume reported backlog counts 30/21/12; the
+I/O volume had zero backlog; all split-brain counts were zero and all heal-info
+brick status fields were Connected. These are timestamped observations, not
+proof of complete recovery.
+
+The next requested detached stage is `two-node-recover-reboot` (35-minute
+service limit). It validates the saved two-node witness and prior comparison,
+re-reads both transaction trials and the original payload/journal, and saves
+pre-repair SHD state/logs and volume status/heal XML. It then gracefully stops
+the workload and deactivates its domain. With quiescence verified, it refuses
+unknown/split-brain states, restarts the affected SHDs on all three hosts using
+the existing brick-preserving helper, requests full heals and waits at most
+15 minutes for zero backlog/split-brain. All three hosts are affected in this
+run, including node1. No brick is deliberately restarted and no heal source
+is manually selected.
+
+While the workload is down, compare both complete volume trees including disk
+shards, canary ACKs and all 18 heal connections. Only after those pass, reactivate
+storage/start the VM, require a changed boot ID, and compare the 11 two-node
+commits and earlier 809 commits against their independent witnesses again.
+Verify the original payload and journal, final connections and heal readiness.
+Preserve the original INCONCLUSIVE result; the new stage has its own receipt.
+Failure stops for review, potentially leaving the workload down/domain in
+maintenance. No new fault or test writer is launched, and no production host
+is changed. This remains a graceful recovery/restart test, not a power-cut test.
+
 ## Earlier round-2 evidence
 
 Bootstrap and preflight subsequently passed. Case

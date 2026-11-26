@@ -219,17 +219,28 @@ def run_test(case, two_node=False):
             thread.join(timeout=10)
 
 
-def load_witness(case):
+def load_witness(case, source='continuous-write'):
     from round2_probe import valid_case
-    receipt = json.loads((case.path / 'continuous-write.result.json').read_text())
+    if source not in ('continuous-write', 'two-node-write'):
+        raise ValueError('Unexpected witness source')
+    receipt = json.loads((case.path / (source + '.result.json')).read_text())
     observations = receipt['observations']
-    if (not observations.get('witnessed_records_preserved') or observations.get('writer_returncode') != 0
+    if source == 'continuous-write' and (not observations.get('witnessed_records_preserved') or observations.get('writer_returncode') != 0
             or observations.get('witness_errors') or not observations.get('original_payload_preserved')):
         raise RuntimeError('Review live-write evidence before reboot verification')
     trial = valid_case(observations['trial'])
     directory = case.path / ('continuous-' + trial)
     if str(directory) != observations['evidence_directory']:
         raise RuntimeError('Trial evidence directory mismatch')
+    if source == 'two-node-write':
+        comparisons = sorted(p for p in directory.glob('recovered-comparison-*.json') if not p.name.endswith('-inventory.json'))
+        if not comparisons:
+            raise RuntimeError('Prior recovered data comparison is required')
+        comparison = json.loads(comparisons[-1].read_text())
+        if (comparison.get('trial') != trial or not comparison.get('witnessed_records_preserved')
+                or not comparison.get('original_payload_preserved') or comparison.get('commits_without_quorum') != 0):
+            raise RuntimeError('Review recovered data comparison before repair')
+        observations = comparison
     witness = [json.loads(line) for line in (directory / 'witness.jsonl').read_text().splitlines()]
     if not witness or len(witness) != observations['witnessed_records']:
         raise RuntimeError('Witness receipt/count mismatch')
@@ -245,13 +256,13 @@ def check_original(inventory):
         raise RuntimeError('CRITICAL: original payload or retained journal changed')
 
 
-def run_reboot_check(case):
+def run_reboot_check(case, source='continuous-write', repair=False):
     from staged_safety import CODE, atomic
-    trial, directory, witness = load_witness(case)
+    trial, directory, witness = load_witness(case, source)
     state = case.engine('status')
     if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
         raise RuntimeError('Reboot verification requires healthy live VM/domain/hosts')
-    if not case.readiness(trigger=False):
+    if not repair and not case.readiness(trigger=False):
         raise RuntimeError('Heal readiness failed before reboot')
     before = json.loads(case.call(command(case.id, trial, 'clock'), timeout=20).stdout)
     inventory = json.loads(case.call(command(case.id, trial, 'verify'), timeout=90).stdout)
@@ -259,8 +270,19 @@ def run_reboot_check(case):
     check_original(inventory)
     atomic(directory / 'pre-reboot-inventory.json', inventory)
     case.observations.update(trial=trial, witnessed_records=len(witness), boot_id_before=before['boot_id'])
+    older = None
+    if repair:
+        older = load_witness(case)
+        previous_inventory = json.loads(case.call(command(case.id, older[0], 'verify'), timeout=90).stdout)
+        check_preserved(older[2], previous_inventory)
+        check_original(previous_inventory)
+        capture_repair_evidence(case, directory)
     case.engine('quiesce')
     case.quiescent()
+    if repair:
+        case.recover()
+        case.verify_contents()
+        case.observations['replicas_verified_while_quiescent'] = True
     case.observations['engine'] = case.engine('resume')
     state = case.observations['engine']
     if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
@@ -279,6 +301,12 @@ def run_reboot_check(case):
     atomic(directory / 'post-reboot-inventory.json', inventory)
     check_preserved(witness, inventory)
     check_original(inventory)
+    if older:
+        previous_inventory = json.loads(case.call(command(case.id, older[0], 'verify'), timeout=90).stdout)
+        atomic(directory / 'older-trial-post-reboot-inventory.json', previous_inventory)
+        check_preserved(older[2], previous_inventory)
+        check_original(previous_inventory)
+        case.observations['earlier_trial_commits_preserved'] = len(older[2])
     case.observations.update(boot_id_after=after['boot_id'], witnessed_records_preserved=True,
                              original_payload_preserved=True, original_journal_entries=inventory['original_journal_entries'],
                              post_reboot_verified=True, reboot_type='graceful_shutdown_and_start')
@@ -290,3 +318,20 @@ def run_reboot_check(case):
         raise RuntimeError('Post-reboot heal connections are not all healthy')
     if not case.readiness(trigger=False):
         raise RuntimeError('Post-reboot heal readiness failed')
+
+
+def capture_repair_evidence(case, directory):
+    from staged_safety import CODE, atomic
+    evidence = {'engine': case.engine('status'), 'nodes': {}, 'volumes': {}}
+    for node in (1, 2, 3):
+        state = json.loads(case.guest(node, ['python3', str(CODE / 'shd_state.py')]).stdout)
+        code = "from pathlib import Path; p=Path('/var/log/glusterfs/glustershd.log'); f=p.open('rb'); f.seek(0,2); end=f.tell(); f.seek(max(0,end-128000)); print(f.read().decode(errors='replace'))"
+        log = case.guest(node, ['python3', '-c', code]).stdout
+        evidence['nodes'][str(node)] = {'state': state, 'recent_shd_log': log}
+    for volume in ('nr99-data', 'nr99-io'):
+        evidence['volumes'][volume] = {}
+        for action, argv in [('status', ['status']), ('backlog', ['heal', 'info']), ('split-brain', ['heal', 'info', 'split-brain'])]:
+            arguments = ['gluster', '--xml', 'volume', argv[0], volume, *argv[1:]]
+            result = case.guest(1, arguments, check=False)
+            evidence['volumes'][volume][action] = {'rc': result.returncode, 'xml': result.stdout, 'stderr': result.stderr}
+    atomic(directory / 'before-repair-evidence.json', evidence)

@@ -17,6 +17,27 @@ TRIAL = 'b' * 32
 
 
 class TransactionTests(unittest.TestCase):
+    def test_two_node_recovery_requires_saved_comparison_and_valid_witness(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            directory = path / ('continuous-' + TRIAL)
+            directory.mkdir()
+            receipt = {'observations': {'trial': TRIAL, 'evidence_directory': str(directory)}}
+            (path / 'two-node-write.result.json').write_text(json.dumps(receipt))
+            ack = {'status': 'ACK', 'sequence': 0, 'sha256': checksum(record(CASE, TRIAL, 0))}
+            (directory / 'witness.jsonl').write_text(json.dumps(ack) + '\n')
+            case = SimpleNamespace(path=path, id=CASE)
+            with self.assertRaisesRegex(RuntimeError, 'Prior recovered data comparison'):
+                load_witness(case, source='two-node-write')
+            comparison = {'trial': TRIAL, 'witnessed_records': 1, 'witnessed_records_preserved': True,
+                          'original_payload_preserved': True, 'commits_without_quorum': 0}
+            saved = directory / 'recovered-comparison-20261126T002928Z.json'
+            saved.write_text(json.dumps(comparison))
+            self.assertEqual(load_witness(case, source='two-node-write')[2], [ack])
+            saved.write_text(json.dumps(dict(comparison, commits_without_quorum=1)))
+            with self.assertRaisesRegex(RuntimeError, 'Review recovered data comparison'):
+                load_witness(case, source='two-node-write')
+
     def test_quorum_detector_excludes_preexisting_and_restored_writes(self):
         window = {'second_down': 100, 'second_up_requested': 135}
         safe = [{'fsync_started': 99, 'fsync_completed': 110},
