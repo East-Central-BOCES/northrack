@@ -350,7 +350,32 @@ class Case:
         if any(self.path.glob('watchdog-*.json')):
             raise Inconclusive('A watchdog restored a link; test timing is not controlled')
 
-    def recover(self):
+    def wait_heal_daemons(self):
+        deadline = time.monotonic() + 180
+        while True:
+            ready = True
+            for node in (1, 2, 3):
+                result = self.guest(node, ['python3', str(CODE / 'shd_state.py')], check=False)
+                if result.returncode:
+                    ready = False
+                    continue
+                flags = json.loads(result.stdout)['active_clients']
+                ready = ready and len(flags) == 6 and all(flags.values())
+            for volume in ('nr99-data', 'nr99-io'):
+                result = self.guest(1, ['gluster', '--xml', 'volume', 'status', volume], check=False)
+                if result.returncode:
+                    ready = False
+                    continue
+                root = ET.fromstring(result.stdout)
+                daemons = [n for n in root.findall('.//volStatus/volumes/volume/node') if n.findtext('hostname') == 'Self-heal Daemon']
+                ready = ready and root.findtext('opRet') == '0' and len(daemons) == 3 and all(n.findtext('status') == '1' for n in daemons)
+            if ready:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Heal daemons/clients did not become ready before full-heal request')
+            time.sleep(5)
+
+    def recover(self, restart_daemons=True):
         self.quiescent()
         for n in (2, 3):
             self.restore(n)
@@ -362,13 +387,22 @@ class Case:
                 raise RuntimeError('Split-brain or unknown state: manual investigation required; no source chosen')
         for client in ('existing', 'fresh'):
             self.probe('unmount', client=client, timeout=25)
-        for n in (1, 2, 3):
-            repair = json.loads(self.guest(n, ['python3', str(CODE / 'repair_shd.py')]).stdout)
-            self.observations.setdefault('repairs', {})[str(n)] = repair
-            if not repair.get('brick_processes_preserved'):
-                raise RuntimeError('Brick process preservation check failed')
+        if restart_daemons:
+            for n in (1, 2, 3):
+                repair = json.loads(self.guest(n, ['python3', str(CODE / 'repair_shd.py')]).stdout)
+                self.observations.setdefault('repairs', {})[str(n)] = repair
+                if not repair.get('brick_processes_preserved'):
+                    raise RuntimeError('Brick process preservation check failed')
+        self.wait_heal_daemons()
         for volume in ('nr99-data', 'nr99-io'):
-            self.guest(1, ['gluster', '--mode=script', 'volume', 'heal', volume, 'full'])
+            deadline = time.monotonic() + 60
+            while True:
+                result = self.guest(1, ['gluster', '--mode=script', 'volume', 'heal', volume, 'full'], check=False)
+                if result.returncode == 0:
+                    break
+                if 'Self-heal daemon is not running' not in result.stdout + result.stderr or time.monotonic() >= deadline:
+                    raise RuntimeError('Full-heal request failed: ' + result.stdout[-800:] + result.stderr[-800:])
+                time.sleep(5)
         deadline = time.monotonic() + 900
         while not self.readiness():
             if time.monotonic() > deadline:
@@ -537,7 +571,8 @@ else: raise RuntimeError('Workload not on node1')
     def two_node_recover_reboot(self):
         self.require('continuous-reboot')
         from continuous_io import run_reboot_check
-        run_reboot_check(self, source='two-node-write', repair=True)
+        continuing = (self.path / 'two-node-recover-reboot.result.json').exists()
+        run_reboot_check(self, source='two-node-write', repair=True, continue_repair=continuing)
 
 
 def worker(case, step, attempt=1):

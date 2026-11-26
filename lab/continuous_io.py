@@ -256,31 +256,52 @@ def check_original(inventory):
         raise RuntimeError('CRITICAL: original payload or retained journal changed')
 
 
-def run_reboot_check(case, source='continuous-write', repair=False):
+def checked_repair_continuation(case, trial, state):
+    receipt = json.loads((case.path / 'two-node-recover-reboot.result.json').read_text())
+    prior = receipt['observations']
+    if (receipt['status'] != 'FAILED' or 'Self-heal daemon is not running' not in receipt.get('error', '')
+            or prior.get('trial') != trial or not prior.get('boot_id_before')
+            or set(prior.get('repairs', {})) != {'1', '2', '3'}
+            or not all(r.get('brick_processes_preserved') for r in prior['repairs'].values())):
+        raise RuntimeError('Prior repair is not a verified completed-daemon-restart continuation')
+    if state['vm'] != 'down' or state['storage'] != 'maintenance' or any(s != 'up' for s in state['hosts'].values()):
+        raise RuntimeError('Repair continuation requires workload down, domain maintenance, hosts UP')
+    return prior
+
+
+def run_reboot_check(case, source='continuous-write', repair=False, continue_repair=False):
     from staged_safety import CODE, atomic
     trial, directory, witness = load_witness(case, source)
     state = case.engine('status')
-    if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
-        raise RuntimeError('Reboot verification requires healthy live VM/domain/hosts')
-    if not repair and not case.readiness(trigger=False):
-        raise RuntimeError('Heal readiness failed before reboot')
-    before = json.loads(case.call(command(case.id, trial, 'clock'), timeout=20).stdout)
-    inventory = json.loads(case.call(command(case.id, trial, 'verify'), timeout=90).stdout)
-    check_preserved(witness, inventory)
-    check_original(inventory)
-    atomic(directory / 'pre-reboot-inventory.json', inventory)
-    case.observations.update(trial=trial, witnessed_records=len(witness), boot_id_before=before['boot_id'])
     older = None
-    if repair:
+    if continue_repair:
+        if not repair or source != 'two-node-write':
+            raise ValueError('Continuation is restricted to the two-node repair job')
+        prior = checked_repair_continuation(case, trial, state)
+        before = {'boot_id': prior['boot_id_before']}
         older = load_witness(case)
-        previous_inventory = json.loads(case.call(command(case.id, older[0], 'verify'), timeout=90).stdout)
-        check_preserved(older[2], previous_inventory)
-        check_original(previous_inventory)
-        capture_repair_evidence(case, directory)
-    case.engine('quiesce')
+        case.observations.update(repairs=prior['repairs'], daemon_restarts_repeated=False)
+    else:
+        if state['vm'] != 'up' or state['storage'] != 'active' or any(s != 'up' for s in state['hosts'].values()):
+            raise RuntimeError('Reboot verification requires healthy live VM/domain/hosts')
+        if not repair and not case.readiness(trigger=False):
+            raise RuntimeError('Heal readiness failed before reboot')
+        before = json.loads(case.call(command(case.id, trial, 'clock'), timeout=20).stdout)
+        inventory = json.loads(case.call(command(case.id, trial, 'verify'), timeout=90).stdout)
+        check_preserved(witness, inventory)
+        check_original(inventory)
+        atomic(directory / 'pre-reboot-inventory.json', inventory)
+        if repair:
+            older = load_witness(case)
+            previous_inventory = json.loads(case.call(command(case.id, older[0], 'verify'), timeout=90).stdout)
+            check_preserved(older[2], previous_inventory)
+            check_original(previous_inventory)
+            capture_repair_evidence(case, directory)
+        case.engine('quiesce')
+    case.observations.update(trial=trial, witnessed_records=len(witness), boot_id_before=before['boot_id'])
     case.quiescent()
     if repair:
-        case.recover()
+        case.recover(restart_daemons=not continue_repair)
         case.verify_contents()
         case.observations['replicas_verified_while_quiescent'] = True
     case.observations['engine'] = case.engine('resume')

@@ -169,6 +169,22 @@ Failure stops for review, potentially leaving the workload down/domain in
 maintenance. No new fault or test writer is launched, and no production host
 is changed. This remains a graceful recovery/restart test, not a power-cut test.
 
+The first recovery/reboot attempt stopped after all three SHD restart helpers
+reported preserved bricks: the subsequent full-heal staging request reported
+node3's SHD not running. No final replica or restart verification was claimed.
+A later read-only check found all six bricks online, all SHDs running, all
+18 clients connected, hosts UP, and the workload DOWN/domain in maintenance.
+
+The requested continuation uses `--attempt 2` on the same stage, retaining the
+failed receipt. It validates the original trial/boot ID and all three preserved-
+brick restart receipts, requires the existing quiescent state, and skips daemon
+restarts. It waits up to three minutes for all SHDs to be listed online and all
+18 client connections ready before full-heal staging. Only the specific SHD-
+not-running staging error is retried, for at most one additional minute per
+volume; other errors stop immediately. Replica comparisons, changed boot ID,
+both independent witnesses, original payload/journal and final health checks
+remain mandatory. No prior witness or failure receipt is overwritten.
+
 ## Earlier round-2 evidence
 
 Bootstrap and preflight subsequently passed. Case

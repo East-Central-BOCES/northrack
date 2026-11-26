@@ -15,6 +15,28 @@ from round2_engine import activate_ready
 
 
 class SafetyVerdictTests(unittest.TestCase):
+    def test_recovery_continuation_waits_for_daemons_without_restarting_them(self):
+        case = Case.__new__(Case)
+        case.observations = {}
+        case.quiescent = Mock()
+        case.restore = Mock()
+        case.probe = Mock()
+        case.readiness = Mock(return_value=True)
+        gate = []
+        case.wait_heal_daemons = Mock(side_effect=lambda: gate.append('ready'))
+        brick = '<brick><status>Connected</status><numberOfEntries>0</numberOfEntries></brick>'
+        xml = '<cliOutput><opRet>0</opRet><healInfo><bricks>' + brick * 3 + '</bricks></healInfo></cliOutput>'
+        def guest(node, argv, **kwargs):
+            if 'full' in argv:
+                self.assertEqual(gate, ['ready'])
+                return SimpleNamespace(returncode=0, stdout='', stderr='')
+            self.assertIn('split-brain', argv)
+            return SimpleNamespace(returncode=0, stdout=xml)
+        case.guest = Mock(side_effect=guest)
+        case.recover(restart_daemons=False)
+        case.wait_heal_daemons.assert_called_once()
+        self.assertFalse(any('repair_shd.py' in ' '.join(c.args[1]) for c in case.guest.call_args_list))
+
     def test_no_write_control_uses_one_guarded_fault_and_no_heal_trigger(self):
         case = Case.__new__(Case)
         case.observations = {}

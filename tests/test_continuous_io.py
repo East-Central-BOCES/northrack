@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / 'lab'))
-from continuous_io import check_preserved, check_witness, check_original, load_witness, Inconclusive, unsafe_quorum_commits, exercise_loss
+from continuous_io import check_preserved, check_witness, check_original, load_witness, Inconclusive, unsafe_quorum_commits, exercise_loss, checked_repair_continuation
 from staged_safety import Inconclusive as RunnerInconclusive
 from vm_transaction import checksum, record, verify_file
 
@@ -17,6 +17,23 @@ TRIAL = 'b' * 32
 
 
 class TransactionTests(unittest.TestCase):
+    def test_repair_continuation_requires_verified_restarts_and_quiescence(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = SimpleNamespace(path=Path(root))
+            prior = {'trial': TRIAL, 'boot_id_before': 'original-boot',
+                     'repairs': {str(n): {'brick_processes_preserved': True} for n in (1,2,3)}}
+            receipt = {'status': 'FAILED', 'error': 'Self-heal daemon is not running', 'observations': prior}
+            saved = case.path / 'two-node-recover-reboot.result.json'
+            saved.write_text(json.dumps(receipt))
+            state = {'vm': 'down', 'storage': 'maintenance', 'hosts': {'node1':'up','node2':'up','node3':'up'}}
+            self.assertEqual(checked_repair_continuation(case, TRIAL, state), prior)
+            with self.assertRaisesRegex(RuntimeError, 'workload down'):
+                checked_repair_continuation(case, TRIAL, dict(state, vm='up'))
+            del prior['repairs']['3']
+            saved.write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(RuntimeError, 'verified completed-daemon-restart'):
+                checked_repair_continuation(case, TRIAL, state)
+
     def test_two_node_recovery_requires_saved_comparison_and_valid_witness(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)
